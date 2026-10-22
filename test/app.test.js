@@ -212,6 +212,32 @@ test('suggestions: post, vote, comment, admin-only status', async () => {
   assert.equal((await bob(`/api/suggestions/${id}`)).status, 404);
 });
 
+test("what's working: share cases and blueprints, mark helpful", async () => {
+  const shared = await bob('/api/playbooks', {
+    method: 'POST',
+    body: { kind: 'case', title: 'AI receptionist for dentists', customer: 'Dental offices', hoursPerWeek: '6', revenue: '1k-5k', timeFreed: 'Home by 3pm' },
+  });
+  assert.equal(shared.status, 200);
+  const id = shared.data.playbook.id;
+  assert.equal(shared.data.playbook.hoursPerWeek, 6);
+  assert.equal((await bob('/api/playbooks', { method: 'POST', body: { kind: 'case', title: 'x', hoursPerWeek: 500 } })).status, 400);
+  assert.equal((await bob('/api/playbooks', { method: 'POST', body: { kind: 'case', title: 'x', revenue: 'a million' } })).status, 400);
+
+  const blueprint = await alice('/api/playbooks', { method: 'POST', body: { kind: 'blueprint', title: 'First 3 clients', steps: 'Pick a niche\nInterview 5 owners' } });
+  assert.equal(blueprint.data.playbook.kind, 'blueprint');
+
+  const helpful = await carol(`/api/playbooks/${id}/vote`, { method: 'POST', body: { vote: true } });
+  assert.equal(helpful.data.playbook.votes, 1);
+  await carol(`/api/playbooks/${id}/comments`, { method: 'POST', body: { body: 'Which phone tool?' } });
+  assert.equal((await bob(`/api/playbooks/${id}`)).data.playbook.comments.length, 1);
+
+  assert.equal((await carol(`/api/playbooks/${id}`, { method: 'PATCH', body: { title: 'mine' } })).status, 403);
+  const edited = await bob(`/api/playbooks/${id}`, { method: 'PATCH', body: { hoursPerWeek: '' } });
+  assert.equal(edited.data.playbook.hoursPerWeek, null);
+  assert.equal(edited.data.playbook.revenue, '1k-5k');
+  assert.equal((await alice(`/api/playbooks/${id}`, { method: 'DELETE' })).status, 200, 'admins can remove posts');
+});
+
 test('recurring calls keep local wall-clock time across DST', () => {
   const call = { start_date: '2026-10-20', start_time: '19:00', timezone: 'America/Chicago', frequency: 'weekly', duration_min: 60 };
   const now = Date.parse('2026-10-21T02:00:00Z');

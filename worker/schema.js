@@ -120,6 +120,36 @@ const STATEMENTS = [
     body TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
+  // "What's working": member-shared working businesses (kind 'case') and blueprints (kind 'blueprint').
+  `CREATE TABLE IF NOT EXISTS playbooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    customer TEXT NOT NULL DEFAULT '',
+    offer TEXT NOT NULL DEFAULT '',
+    acquisition TEXT NOT NULL DEFAULT '',
+    tools TEXT NOT NULL DEFAULT '',
+    revenue TEXT NOT NULL DEFAULT '',
+    hours_per_week INTEGER,
+    time_freed TEXT NOT NULL DEFAULT '',
+    steps TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    updated_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  `CREATE TABLE IF NOT EXISTS playbook_votes (
+    playbook_id INTEGER NOT NULL REFERENCES playbooks(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (playbook_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS playbook_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    playbook_id INTEGER NOT NULL REFERENCES playbooks(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
   `CREATE TABLE IF NOT EXISTS call_rsvps (
     call_id INTEGER NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
     occurrence TEXT NOT NULL,

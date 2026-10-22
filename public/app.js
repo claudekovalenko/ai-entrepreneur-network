@@ -12,6 +12,10 @@ const VERSES = [
 ];
 
 const STATUS_LABELS = { looking: 'Looking for help', 'in-progress': 'In progress', launched: 'Launched', paused: 'Paused' };
+const REVENUE_LABELS = {
+  '': 'Prefer not to say', 'pre-revenue': 'Pre-revenue', 'under-1k': 'Under $1k/mo',
+  '1k-5k': '$1k–5k/mo', '5k-10k': '$5k–10k/mo', '10k-plus': '$10k+/mo',
+};
 const SUGGESTION_LABELS = { open: 'Open', planned: 'Planned', done: 'Done', 'not-now': 'Not now' };
 const FREQ_LABELS = { weekly: 'Every week', biweekly: 'Every other week', once: 'One time' };
 const AVATAR_COLORS = ['#b9802a', '#2c5aa0', '#2f8a5b', '#8a3f8f', '#b3412f', '#1f7a83', '#5b5fc7', '#9a6a1f'];
@@ -28,6 +32,7 @@ const state = {
   typing: new Map(), // room -> Map(userId -> timeout)
   projects: null,
   suggestions: null,
+  playbooks: null,
   calls: null,
   route: { name: 'home' },
   socket: null,
@@ -193,6 +198,7 @@ function parseRoute() {
   if (parts[0] === 'c' || parts[0] === 'd') return { name: 'room', room: `${parts[0]}:${parts[1]}` };
   if (parts[0] === 'projects') return { name: 'projects', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'calls') return { name: 'calls' };
+  if (parts[0] === 'working') return { name: 'working', tab: parts[1] === 'blueprints' ? 'blueprints' : 'cases', id: parts[2] && Number(parts[2]) };
   if (parts[0] === 'suggestions') return { name: 'suggestions', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
@@ -278,6 +284,7 @@ function renderSidebar() {
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
+      navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
       navItem({ href: '#/calls', icon: h('span', { class: 'icon' }, '☏'), label: 'Community calls', active: r.name === 'calls' }),
       navItem({ href: '#/members', icon: h('span', { class: 'icon' }, '☺'), label: 'Members', active: r.name === 'members' }),
@@ -335,6 +342,7 @@ function renderMain() {
   else if (r.name === 'projects') main.append(...renderProjects());
   else if (r.name === 'calls') main.append(...renderCalls());
   else if (r.name === 'suggestions') main.append(...renderSuggestions());
+  else if (r.name === 'working') main.append(...renderWorking());
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
   else main.append(...renderHome());
@@ -1046,6 +1054,218 @@ function editSuggestion(x) {
   }));
 }
 
+// ---------- what's working ----------
+
+// A built-in framework shown above members' blueprints.
+const ANATOMY = [
+  ['A real problem and a clear customer', 'Who pays, and what pain are you removing? Narrow beats broad: “dental offices that miss calls” beats “small businesses.”'],
+  ['A simple offer and price', 'One thing you sell, priced so a few customers cover your needs. Recurring (monthly) pricing buys back the most time.'],
+  ['One reliable way to find customers', 'Referrals, one content channel, partnerships, or direct outreach. Master one before adding another.'],
+  ['Delivery that AI and automation do most of', 'Map every step of delivering the work. Let AI draft, automations move data, and keep your judgment for review.'],
+  ['Systems that run without you', 'Written processes, templates, and help where needed, so the business does not stop when you step away for church, family, or rest.'],
+  ['Know your numbers, especially hours', 'Track monthly revenue, costs, and hours per week. The number that matters most here is hours.'],
+  ['Redeem the time on purpose', 'Decide ahead of time where freed hours go: God, family, serving, ministry. Otherwise the business quietly takes them back.'],
+];
+const MODELS = [
+  ['AI automation for local businesses', 'Set up AI receptionists, follow-ups, and booking flows for service businesses on a monthly retainer.'],
+  ['Content repurposing service', 'Turn one sermon, podcast, or video into clips, posts, and newsletters for churches, ministries, or creators.'],
+  ['Niche micro-tool or SaaS', 'A small, focused app that solves one job for one audience and runs mostly on its own.'],
+  ['Done-for-you chatbots', 'Custom assistants trained on an organization’s own material for churches, nonprofits, or clinics.'],
+  ['Courses and templates', 'Package what you know into a course, prompt pack, or template library that sells while you sleep.'],
+];
+
+let workingSort = 'helpful';
+
+function upsertPlaybook(x) {
+  if (!state.playbooks) return;
+  if (x.deleted) {
+    state.playbooks = state.playbooks.filter((p) => p.id !== x.id);
+    return;
+  }
+  const { comments, ...summary } = x;
+  const merged = { ...summary, voted: summary.voters.includes(state.me.id) };
+  const i = state.playbooks.findIndex((p) => p.id === x.id);
+  if (i >= 0) state.playbooks[i] = merged; else state.playbooks.unshift(merged);
+}
+
+function helpfulButton(x, onVoted) {
+  return h('button', {
+    class: `btn small helpful ${x.voted ? 'on' : ''}`, 'aria-pressed': x.voted ? 'true' : 'false',
+    onclick: async (e) => {
+      e.stopPropagation();
+      try {
+        const { playbook } = await api(`/api/playbooks/${x.id}/vote`, { method: 'POST', body: { vote: !x.voted } });
+        upsertPlaybook(playbook);
+        if (onVoted) onVoted(playbook); else renderShell();
+      } catch (err) { toast(err.message, 'error'); }
+    },
+  }, `🙌 Helpful · ${x.votes}`);
+}
+
+function caseStats(x) {
+  return h('div', { class: 'stat-chips' },
+    x.hoursPerWeek != null && h('span', { class: 'stat-chip hours' }, h('b', {}, x.hoursPerWeek), ' hrs/week'),
+    x.revenue && h('span', { class: 'stat-chip' }, REVENUE_LABELS[x.revenue]),
+    x.customer && h('span', { class: 'stat-chip' }, `For: ${x.customer}`));
+}
+
+function playbookCard(x) {
+  const tab = x.kind === 'blueprint' ? 'blueprints' : 'cases';
+  const steps = x.steps.split('\n').map((t) => t.trim()).filter(Boolean);
+  return h('article', { class: 'card playbook-card', onclick: () => go(`#/working/${tab}/${x.id}`) },
+    h('h3', {}, x.title),
+    x.kind === 'case' && caseStats(x),
+    x.summary && h('p', { class: 'muted desc' }, x.summary),
+    x.kind === 'blueprint' && steps.length > 0 && h('p', { class: 'small muted' }, `${steps.length} steps`),
+    x.timeFreed && h('div', { class: 'freed' }, h('b', {}, 'Time given back: '), x.timeFreed),
+    h('div', { class: 'foot' }, avatar(x.userId, 'sm'), h('span', { class: 'grow' }, userName(x.userId)),
+      helpfulButton(x), h('span', {}, `💬 ${x.commentCount}`)));
+}
+
+function renderWorking() {
+  const r = state.route;
+  const tab = r.tab;
+  const items = (state.playbooks || []).filter((x) => x.kind === (tab === 'blueprints' ? 'blueprint' : 'case'));
+  const sorters = {
+    helpful: (a, b) => b.votes - a.votes || b.id - a.id,
+    newest: (a, b) => b.id - a.id,
+    hours: (a, b) => (a.hoursPerWeek ?? 999) - (b.hoursPerWeek ?? 999),
+  };
+  const sorts = tab === 'cases' ? [['helpful', 'Most helpful'], ['hours', 'Fewest hours'], ['newest', 'Newest']] : [['helpful', 'Most helpful'], ['newest', 'Newest']];
+  if (!sorts.some(([k]) => k === workingSort)) workingSort = 'helpful';
+  items.sort(sorters[workingSort]);
+  if (r.id) afterRenderHooks.push(() => openPlaybook(r.id));
+
+  const tabs = h('div', { class: 'tabs', role: 'tablist' },
+    h('a', { class: `tab ${tab === 'cases' ? 'on' : ''}`, href: '#/working', role: 'tab', 'aria-selected': String(tab === 'cases') }, 'Working businesses'),
+    h('a', { class: `tab ${tab === 'blueprints' ? 'on' : ''}`, href: '#/working/blueprints', role: 'tab', 'aria-selected': String(tab === 'blueprints') }, 'Blueprints'));
+
+  const toolbar = h('div', { class: 'toolbar' },
+    h('div', { class: 'tags' }, sorts.map(([key, label]) => h('button', {
+      class: `btn small ghost ${workingSort === key ? 'on' : ''}`, onclick: () => { workingSort = key; renderShell(); },
+    }, label))),
+    h('button', { class: 'btn primary', onclick: () => openPlaybookEditor(tab === 'blueprints' ? 'blueprint' : 'case') },
+      tab === 'blueprints' ? '+ Share a blueprint' : '+ Share a working business'));
+
+  const casesIntro = h('p', { class: 'muted intro' },
+    'Real ventures from members that are working. Every one lists hours per week, because the point is time given back, not just income.');
+  const blueprintIntro = [
+    h('section', { class: 'card anatomy' },
+      h('h2', { class: 'serif' }, 'Anatomy of a working AI business'),
+      h('p', { class: 'muted' }, 'The structure most working ventures in this network share. Use it as a checklist for your own.'),
+      h('ol', {}, ANATOMY.map(([t, d]) => h('li', {}, h('strong', {}, t), h('span', { class: 'muted' }, d))))),
+    h('section', {},
+      h('h2', { class: 'section-title' }, 'Common models to study'),
+      h('div', { class: 'grid models' }, MODELS.map(([t, d]) => h('div', { class: 'card' }, h('h3', {}, t), h('p', { class: 'muted small' }, d))))),
+    h('h2', { class: 'section-title' }, 'Blueprints from members'),
+  ];
+
+  return [
+    topbar('What’s working', 'Working businesses and the structures behind them'),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner' },
+      tabs,
+      tab === 'cases' ? casesIntro : blueprintIntro,
+      toolbar,
+      items.length ? h('div', { class: 'grid' }, items.map(playbookCard))
+        : h('div', { class: 'card empty' }, tab === 'cases'
+          ? 'No working businesses shared yet. If yours is working, even a little, share it so others can learn.'
+          : 'No member blueprints yet. Share the step-by-step process behind something that works for you.'))),
+  ];
+}
+
+function openPlaybookEditor(kind, x) {
+  const isCase = kind === 'case';
+  const fields = isCase ? [
+    field('Business name or one-line description', h('input', { type: 'text', id: 'pb-title', name: 'title', required: true, maxlength: 120, value: x?.title, placeholder: 'e.g. AI receptionist for dental offices' })),
+    field('How it works', h('textarea', { id: 'pb-summary', name: 'summary', rows: 3, maxlength: 2000, value: x?.summary, placeholder: 'What you do, and what AI handles for you' })),
+    h('div', { class: 'row' },
+      field('Who pays', h('input', { type: 'text', id: 'pb-customer', name: 'customer', maxlength: 300, value: x?.customer, placeholder: 'e.g. Small dental practices' })),
+      field('Offer and price', h('input', { type: 'text', id: 'pb-offer', name: 'offer', maxlength: 500, value: x?.offer, placeholder: 'e.g. $300/month setup + support' }))),
+    field('How customers find you', h('input', { type: 'text', id: 'pb-acq', name: 'acquisition', maxlength: 500, value: x?.acquisition, placeholder: 'e.g. Referrals and local Facebook groups' })),
+    field('Tools you use', h('input', { type: 'text', id: 'pb-tools', name: 'tools', maxlength: 300, value: x?.tools, placeholder: 'e.g. ChatGPT, Zapier, Vapi, Stripe' })),
+    h('div', { class: 'row' },
+      field('Hours per week', h('input', { type: 'number', id: 'pb-hours', name: 'hoursPerWeek', min: 0, max: 100, value: x?.hoursPerWeek ?? '', placeholder: 'e.g. 6' }), 'Your own time, roughly'),
+      field('Monthly revenue', h('select', { id: 'pb-revenue', name: 'revenue' }, Object.entries(REVENUE_LABELS).map(([v, l]) => h('option', { value: v, selected: (x?.revenue ?? '') === v }, l))), 'Optional')),
+    field('Where the freed time goes', h('input', { type: 'text', id: 'pb-freed', name: 'timeFreed', maxlength: 500, value: x?.timeFreed, placeholder: 'e.g. Home by 3pm with my kids, leading a Tuesday Bible study' })),
+    field('Steps to replicate it (one per line)', h('textarea', { id: 'pb-steps', name: 'steps', rows: 4, maxlength: 4000, value: x?.steps }), 'Optional'),
+  ] : [
+    field('Blueprint name', h('input', { type: 'text', id: 'pb-title', name: 'title', required: true, maxlength: 120, value: x?.title, placeholder: 'e.g. Landing your first 3 local clients' })),
+    field('What it helps you do', h('textarea', { id: 'pb-summary', name: 'summary', rows: 2, maxlength: 2000, value: x?.summary })),
+    field('Steps (one per line)', h('textarea', { id: 'pb-steps', name: 'steps', rows: 8, maxlength: 4000, required: true, value: x?.steps, placeholder: 'Pick one niche you already know\nInterview 5 owners about their biggest time drain\n…' })),
+    field('Tools', h('input', { type: 'text', id: 'pb-tools', name: 'tools', maxlength: 300, value: x?.tools })),
+  ];
+  const close = openModal(x ? 'Edit' : isCase ? 'Share a working business' : 'Share a blueprint', form(fields, {
+    submitLabel: x ? 'Save changes' : 'Share',
+    onSubmit: async (values) => {
+      const body = { ...values, kind };
+      const res = x
+        ? await api(`/api/playbooks/${x.id}`, { method: 'PATCH', body })
+        : await api('/api/playbooks', { method: 'POST', body });
+      upsertPlaybook(res.playbook);
+      close();
+      const path = `#/working/${isCase ? 'cases' : 'blueprints'}/${res.playbook.id}`;
+      if (location.hash === path) openPlaybook(res.playbook.id); else go(path);
+    },
+  }), { wide: true });
+}
+
+async function openPlaybook(id) {
+  let x;
+  try {
+    ({ playbook: x } = await api(`/api/playbooks/${id}`));
+  } catch (err) {
+    toast(err.message, 'error');
+    return go('#/working');
+  }
+  const isOwner = x.userId === state.me.id;
+  const refresh = (updated) => { upsertPlaybook(updated); openPlaybook(updated.id); };
+  const steps = x.steps.split('\n').map((t) => t.trim()).filter(Boolean);
+  const detail = (label, value) => value && h('div', { class: 'detail-block' }, h('h4', {}, label), h('p', { html: formatText(value) }));
+  const tabPath = x.kind === 'blueprint' ? '#/working/blueprints' : '#/working';
+
+  const close = openModal(x.title, h('div', {},
+    h('div', { class: 'suggestion-meta' },
+      h('span', { class: 'chip' }, x.kind === 'blueprint' ? 'Blueprint' : 'Working business'),
+      avatar(x.userId, 'sm'),
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); close(); openMemberProfile(x.userId); } }, userName(x.userId)),
+      h('span', { class: 'muted small' }, `· updated ${shortDate(x.updatedAt)}`)),
+    x.kind === 'case' && caseStats(x),
+    detail(x.kind === 'case' ? 'How it works' : 'What it helps you do', x.summary),
+    detail('Offer and price', x.offer),
+    detail('How customers find them', x.acquisition),
+    detail('Tools', x.tools),
+    x.timeFreed && h('div', { class: 'freed', style: 'margin-bottom:18px' }, h('b', {}, 'Time given back: '), x.timeFreed),
+    steps.length > 0 && h('div', { class: 'detail-block' }, h('h4', {}, 'Steps'), h('ol', { class: 'steps' }, steps.map((t) => h('li', {}, t)))),
+    h('div', { class: 'detail-block', style: 'display:flex;gap:8px;flex-wrap:wrap' },
+      helpfulButton(x, refresh),
+      !isOwner && h('button', { class: 'btn small', onclick: () => startDm(x.userId) }, `Message ${userName(x.userId).split(' ')[0]}`)),
+    h('div', { class: 'detail-block' }, h('h4', {}, `Questions & discussion (${x.comments.length})`),
+      x.comments.map((c) => h('div', { class: 'comment' }, avatar(c.userId, 'sm'),
+        h('div', {}, h('strong', {}, userName(c.userId)), h('span', { class: 'muted small' }, ` · ${shortDate(c.createdAt)}`),
+          h('p', { html: formatText(c.body) })))),
+      form([h('textarea', { name: 'body', rows: 2, required: true, maxlength: 2000, placeholder: 'Ask how they did it, or share what worked for you…' })], {
+        submitLabel: 'Comment',
+        onSubmit: async (values) => refresh((await api(`/api/playbooks/${id}/comments`, { method: 'POST', body: values })).playbook),
+      })),
+    (isOwner || state.me.role === 'admin') && h('div', { class: 'modal-foot', style: 'border-top:1px solid var(--border);padding-top:14px' },
+      h('button', { class: 'btn danger ghost', onclick: async () => {
+        if (!confirm('Delete this?')) return;
+        await api(`/api/playbooks/${id}`, { method: 'DELETE' });
+        upsertPlaybook({ id, deleted: true });
+        close();
+      } }, 'Delete'),
+      h('span', { class: 'spacer' }),
+      isOwner && h('button', { class: 'btn', onclick: () => openPlaybookEditor(x.kind, x) }, 'Edit'))),
+  {
+    wide: true,
+    onClose: () => {
+      if (location.hash.startsWith('#/working/') && /\/\d+$/.test(location.hash)) history.replaceState(null, '', tabPath);
+      state.route = parseRoute();
+      renderShell();
+    },
+  });
+}
+
 // ---------- calls ----------
 
 function callCard(call, { limit = 3 } = {}) {
@@ -1348,6 +1568,11 @@ function connectSocket() {
     else refreshSidebar();
   });
 
+  socket.on('playbook:changed', (x) => {
+    upsertPlaybook(x);
+    if (!document.querySelector('.modal-backdrop') && state.route.name === 'working') renderShell();
+  });
+
   socket.on('calls:changed', async () => {
     await loadCalls();
     const modalOpen = document.querySelector('.modal-backdrop');
@@ -1377,9 +1602,12 @@ async function logout(silent = false) {
 
 async function start() {
   applyBootstrap(await api('/api/bootstrap'));
-  const [projects, suggestions] = await Promise.all([api('/api/projects'), api('/api/suggestions'), loadCalls()]);
+  const [projects, suggestions, playbooks] = await Promise.all([
+    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), loadCalls(),
+  ]);
   state.projects = projects.projects;
   state.suggestions = suggestions.suggestions;
+  state.playbooks = playbooks.playbooks;
   state.route = parseRoute();
   renderShell();
   connectSocket();

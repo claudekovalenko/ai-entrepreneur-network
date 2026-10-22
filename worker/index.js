@@ -9,6 +9,8 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 60;
 const REACTIONS = ['🙏', '🔥', '❤️', '🙌', '💡', '😂'];
 const PROJECT_STATUSES = ['looking', 'in-progress', 'launched', 'paused'];
 const SUGGESTION_STATUSES = ['open', 'planned', 'done', 'not-now'];
+const PLAYBOOK_KINDS = ['case', 'blueprint'];
+const REVENUE_RANGES = ['', 'pre-revenue', 'under-1k', '1k-5k', '5k-10k', '10k-plus'];
 const MAX_MESSAGE = 4000;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
@@ -598,6 +600,135 @@ on('POST', '/api/suggestions/:id/comments', async ({ db, user, params, body, emi
   const text = str(body.body, { max: 2000, required: true, field: 'Comment' });
   await db.prepare('INSERT INTO suggestion_comments (suggestion_id, user_id, body) VALUES (?, ?, ?)').bind(s.id, user.id, text).run();
   return { suggestion: await suggestionChanged(db, s.id, user, emit) };
+});
+
+// ----- what's working: case studies & blueprints -----
+
+async function serializePlaybooks(db, rows, userId, { detail = false } = {}) {
+  if (!rows.length) return [];
+  const ids = JSON.stringify(rows.map((r) => r.id));
+  const [votes, counts, comments] = await db.batch([
+    db.prepare('SELECT playbook_id, user_id FROM playbook_votes WHERE playbook_id IN (SELECT value FROM json_each(?))').bind(ids),
+    db.prepare(`SELECT playbook_id, COUNT(*) AS n FROM playbook_comments
+      WHERE playbook_id IN (SELECT value FROM json_each(?)) GROUP BY playbook_id`).bind(ids),
+    db.prepare(`SELECT * FROM playbook_comments WHERE ? AND playbook_id IN (SELECT value FROM json_each(?)) ORDER BY id`)
+      .bind(detail ? 1 : 0, ids),
+  ]);
+  const countFor = new Map(counts.results.map((r) => [r.playbook_id, r.n]));
+  return rows.map((p) => {
+    const voters = votes.results.filter((v) => v.playbook_id === p.id).map((v) => v.user_id);
+    const out = {
+      id: p.id, userId: p.user_id, kind: p.kind, title: p.title, summary: p.summary,
+      customer: p.customer, offer: p.offer, acquisition: p.acquisition, tools: p.tools,
+      revenue: p.revenue, hoursPerWeek: p.hours_per_week, timeFreed: p.time_freed, steps: p.steps,
+      createdAt: p.created_at, updatedAt: p.updated_at,
+      votes: voters.length, voters, commentCount: countFor.get(p.id) ?? 0,
+    };
+    if (userId != null) out.voted = voters.includes(userId);
+    if (detail) {
+      out.comments = comments.results.filter((c) => c.playbook_id === p.id)
+        .map((c) => ({ id: c.id, userId: c.user_id, body: c.body, createdAt: c.created_at }));
+    }
+    return out;
+  });
+}
+
+function playbookFields(body, existing = {}) {
+  const kind = body.kind ?? existing.kind ?? 'case';
+  if (!PLAYBOOK_KINDS.includes(kind)) throw new HttpError(400, 'Unknown type');
+  const revenue = body.revenue ?? existing.revenue ?? '';
+  if (!REVENUE_RANGES.includes(revenue)) throw new HttpError(400, 'Unknown revenue range');
+  const rawHours = body.hoursPerWeek ?? existing.hours_per_week;
+  let hours = null;
+  if (rawHours !== null && rawHours !== undefined && rawHours !== '') {
+    hours = Number(rawHours);
+    if (!Number.isInteger(hours) || hours < 0 || hours > 100) throw new HttpError(400, 'Hours per week must be a whole number from 0 to 100');
+  }
+  const text = (key, col, max, field) => str(body[key] ?? existing[col], { max, field });
+  return {
+    kind,
+    title: str(body.title ?? existing.title, { max: 120, required: true, field: 'Title' }),
+    summary: text('summary', 'summary', 2000, 'Summary'),
+    customer: text('customer', 'customer', 300, 'Customer'),
+    offer: text('offer', 'offer', 500, 'Offer'),
+    acquisition: text('acquisition', 'acquisition', 500, 'How customers find you'),
+    tools: text('tools', 'tools', 300, 'Tools'),
+    revenue,
+    hours_per_week: hours,
+    time_freed: text('timeFreed', 'time_freed', 500, 'Time given back'),
+    steps: text('steps', 'steps', 4000, 'Steps'),
+  };
+}
+
+async function loadPlaybook(db, params) {
+  const p = await db.prepare('SELECT * FROM playbooks WHERE id = ?').bind(intParam(params.id)).first();
+  if (!p) throw new HttpError(404, 'Not found');
+  return p;
+}
+
+async function playbookChanged(db, id, user, emit) {
+  const row = await db.prepare('SELECT * FROM playbooks WHERE id = ?').bind(id).first();
+  if (!row) {
+    emit('playbook:changed', { id, deleted: true });
+    return null;
+  }
+  const [detail] = await serializePlaybooks(db, [row], user.id, { detail: true });
+  const { comments, voted, ...summary } = detail;
+  emit('playbook:changed', summary);
+  return detail;
+}
+
+on('GET', '/api/playbooks', async ({ db, user }) => ({
+  playbooks: await serializePlaybooks(db, await all(db.prepare('SELECT * FROM playbooks ORDER BY updated_at DESC')), user.id),
+}));
+
+on('POST', '/api/playbooks', async ({ db, user, body, emit }) => {
+  const f = playbookFields(body);
+  const row = await db.prepare(`INSERT INTO playbooks (user_id, kind, title, summary, customer, offer, acquisition, tools,
+    revenue, hours_per_week, time_freed, steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+    .bind(user.id, f.kind, f.title, f.summary, f.customer, f.offer, f.acquisition, f.tools, f.revenue, f.hours_per_week, f.time_freed, f.steps)
+    .first();
+  return { playbook: await playbookChanged(db, row.id, user, emit) };
+});
+
+on('GET', '/api/playbooks/:id', async ({ db, user, params }) => {
+  const [playbook] = await serializePlaybooks(db, [await loadPlaybook(db, params)], user.id, { detail: true });
+  return { playbook };
+});
+
+on('PATCH', '/api/playbooks/:id', async ({ db, user, params, body, emit }) => {
+  const p = await loadPlaybook(db, params);
+  if (p.user_id !== user.id) throw new HttpError(403, 'Only the person who shared this can edit it');
+  const f = playbookFields(body, p);
+  await db.prepare(`UPDATE playbooks SET kind = ?, title = ?, summary = ?, customer = ?, offer = ?, acquisition = ?, tools = ?,
+    revenue = ?, hours_per_week = ?, time_freed = ?, steps = ?, updated_at = ${NOW} WHERE id = ?`)
+    .bind(f.kind, f.title, f.summary, f.customer, f.offer, f.acquisition, f.tools, f.revenue, f.hours_per_week, f.time_freed, f.steps, p.id)
+    .run();
+  return { playbook: await playbookChanged(db, p.id, user, emit) };
+});
+
+on('DELETE', '/api/playbooks/:id', async ({ db, user, params, emit }) => {
+  const p = await loadPlaybook(db, params);
+  if (p.user_id !== user.id && user.role !== 'admin') throw new HttpError(403, 'Only the person who shared this can delete it');
+  await db.prepare('DELETE FROM playbooks WHERE id = ?').bind(p.id).run();
+  await playbookChanged(db, p.id, user, emit);
+  return { ok: true };
+});
+
+on('POST', '/api/playbooks/:id/vote', async ({ db, user, params, body, emit }) => {
+  const p = await loadPlaybook(db, params);
+  const stmt = body.vote === false
+    ? 'DELETE FROM playbook_votes WHERE playbook_id = ? AND user_id = ?'
+    : 'INSERT OR IGNORE INTO playbook_votes (playbook_id, user_id) VALUES (?, ?)';
+  await db.prepare(stmt).bind(p.id, user.id).run();
+  return { playbook: await playbookChanged(db, p.id, user, emit) };
+});
+
+on('POST', '/api/playbooks/:id/comments', async ({ db, user, params, body, emit }) => {
+  const p = await loadPlaybook(db, params);
+  const text = str(body.body, { max: 2000, required: true, field: 'Comment' });
+  await db.prepare('INSERT INTO playbook_comments (playbook_id, user_id, body) VALUES (?, ?, ?)').bind(p.id, user.id, text).run();
+  return { playbook: await playbookChanged(db, p.id, user, emit) };
 });
 
 // ----- calls -----

@@ -228,6 +228,34 @@ textarea { resize: vertical; min-height: 80px; }
 .member-card h3 { font-size: 15px; display: flex; align-items: center; gap: 6px; }
 .member-card p { margin: 2px 0 0; font-size: 13.5px; }
 
+/* ---------- what's working ---------- */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.tab { padding: 10px 14px; text-decoration: none; color: var(--muted); font-weight: 600; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.tab.on { color: var(--text); border-color: var(--accent); }
+.intro { margin: 0 0 14px; max-width: 70ch; }
+.section-title { font-size: 17px; margin: 24px 0 12px; }
+.anatomy h2 { font-size: 20px; }
+.anatomy > p { margin: 4px 0 12px; }
+.anatomy ol { margin: 0; padding-left: 22px; display: grid; gap: 10px; }
+.anatomy li strong { display: block; }
+.anatomy li span { font-size: 14px; }
+.models h3 { font-size: 15px; }
+.models p { margin: 4px 0 0; }
+.playbook-card { display: flex; flex-direction: column; gap: 10px; cursor: pointer; }
+.playbook-card h3 { font-size: 16px; overflow-wrap: anywhere; }
+.playbook-card .desc { margin: 0; font-size: 14px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.playbook-card .foot { display: flex; align-items: center; gap: 8px; margin-top: auto; font-size: 13px; color: var(--muted); }
+.playbook-card .foot .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.stat-chip { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.stat-chip.hours { background: var(--accent-soft); border-color: transparent; color: var(--accent-strong); }
+.stat-chip.hours b { font-variant-numeric: tabular-nums; }
+.freed { background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
+.freed b { color: var(--accent-strong); }
+.steps { margin: 0; padding-left: 22px; display: grid; gap: 6px; }
+.helpful { white-space: nowrap; }
+.modal .stat-chips { margin-bottom: 18px; }
+
 /* ---------- suggestions ---------- */
 .suggest-box { margin-bottom: 18px; }
 .suggest-box textarea { min-height: 56px; margin-top: 8px; }
