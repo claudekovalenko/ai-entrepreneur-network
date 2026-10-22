@@ -100,6 +100,26 @@ const STATEMENTS = [
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
+  `CREATE TABLE IF NOT EXISTS suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  `CREATE TABLE IF NOT EXISTS suggestion_votes (
+    suggestion_id INTEGER NOT NULL REFERENCES suggestions(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (suggestion_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS suggestion_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    suggestion_id INTEGER NOT NULL REFERENCES suggestions(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
   `CREATE TABLE IF NOT EXISTS call_rsvps (
     call_id INTEGER NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
     occurrence TEXT NOT NULL,

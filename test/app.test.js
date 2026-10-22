@@ -186,6 +186,32 @@ test('projects: post, offer help, comment, owner-only edits', async () => {
   assert.equal((await bob(`/api/projects/${id}`, { method: 'PATCH', body: { status: 'bogus' } })).status, 400);
 });
 
+test('suggestions: post, vote, comment, admin-only status', async () => {
+  const posted = await bob('/api/suggestions', { method: 'POST', body: { title: 'Monthly prayer day', details: 'Fast and pray for our ventures' } });
+  assert.equal(posted.status, 200);
+  const id = posted.data.suggestion.id;
+  assert.equal(posted.data.suggestion.votes, 1, 'author backs their own idea');
+
+  const voted = await carol(`/api/suggestions/${id}/vote`, { method: 'POST', body: { vote: true } });
+  assert.equal(voted.data.suggestion.votes, 2);
+  assert.equal(voted.data.suggestion.voted, true);
+  await carol(`/api/suggestions/${id}/vote`, { method: 'POST', body: { vote: true } });
+  assert.equal((await alice('/api/suggestions')).data.suggestions.find((x) => x.id === id).votes, 2, 'double votes count once');
+
+  await alice(`/api/suggestions/${id}/comments`, { method: 'POST', body: { body: 'Yes! First Friday?' } });
+  assert.equal((await bob(`/api/suggestions/${id}`)).data.suggestion.comments.length, 1);
+
+  assert.equal((await bob(`/api/suggestions/${id}`, { method: 'PATCH', body: { status: 'planned' } })).status, 403);
+  assert.equal((await carol(`/api/suggestions/${id}`, { method: 'PATCH', body: { title: 'hijack' } })).status, 403);
+  const planned = await alice(`/api/suggestions/${id}`, { method: 'PATCH', body: { status: 'planned' } });
+  assert.equal(planned.data.suggestion.status, 'planned');
+  assert.equal(planned.data.suggestion.title, 'Monthly prayer day');
+
+  assert.equal((await carol(`/api/suggestions/${id}`, { method: 'DELETE' })).status, 403);
+  assert.equal((await bob(`/api/suggestions/${id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await bob(`/api/suggestions/${id}`)).status, 404);
+});
+
 test('recurring calls keep local wall-clock time across DST', () => {
   const call = { start_date: '2026-10-20', start_time: '19:00', timezone: 'America/Chicago', frequency: 'weekly', duration_min: 60 };
   const now = Date.parse('2026-10-21T02:00:00Z');

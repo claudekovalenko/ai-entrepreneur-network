@@ -12,6 +12,7 @@ const VERSES = [
 ];
 
 const STATUS_LABELS = { looking: 'Looking for help', 'in-progress': 'In progress', launched: 'Launched', paused: 'Paused' };
+const SUGGESTION_LABELS = { open: 'Open', planned: 'Planned', done: 'Done', 'not-now': 'Not now' };
 const FREQ_LABELS = { weekly: 'Every week', biweekly: 'Every other week', once: 'One time' };
 const AVATAR_COLORS = ['#b9802a', '#2c5aa0', '#2f8a5b', '#8a3f8f', '#b3412f', '#1f7a83', '#5b5fc7', '#9a6a1f'];
 
@@ -26,6 +27,7 @@ const state = {
   rooms: new Map(), // room -> { messages, hasMore, loaded }
   typing: new Map(), // room -> Map(userId -> timeout)
   projects: null,
+  suggestions: null,
   calls: null,
   route: { name: 'home' },
   socket: null,
@@ -191,6 +193,7 @@ function parseRoute() {
   if (parts[0] === 'c' || parts[0] === 'd') return { name: 'room', room: `${parts[0]}:${parts[1]}` };
   if (parts[0] === 'projects') return { name: 'projects', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'calls') return { name: 'calls' };
+  if (parts[0] === 'suggestions') return { name: 'suggestions', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
   return { name: 'home' };
@@ -266,6 +269,7 @@ function renderSidebar() {
   const r = state.route;
   const isAdmin = state.me.role === 'admin';
   const helpCount = (state.projects || []).filter((p) => p.status === 'looking').length;
+  const openSuggestions = (state.suggestions || []).filter((x) => x.status === 'open').length;
   return h('aside', { class: 'sidebar' },
     h('div', { class: 'sidebar-head' },
       h('div', { class: 'brand-mark' }, '✝'),
@@ -274,6 +278,7 @@ function renderSidebar() {
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
+      navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
       navItem({ href: '#/calls', icon: h('span', { class: 'icon' }, '☏'), label: 'Community calls', active: r.name === 'calls' }),
       navItem({ href: '#/members', icon: h('span', { class: 'icon' }, '☺'), label: 'Members', active: r.name === 'members' }),
       h('div', { class: 'nav-section' },
@@ -329,6 +334,7 @@ function renderMain() {
   if (r.name === 'room') main.append(...renderRoom(r.room));
   else if (r.name === 'projects') main.append(...renderProjects());
   else if (r.name === 'calls') main.append(...renderCalls());
+  else if (r.name === 'suggestions') main.append(...renderSuggestions());
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
   else main.append(...renderHome());
@@ -883,6 +889,163 @@ async function openProject(id) {
   });
 }
 
+// ---------- suggestions ----------
+
+let suggestionSort = 'top';
+let suggestionFilter = 'active';
+
+function upsertSuggestion(x) {
+  if (!state.suggestions) return;
+  if (x.deleted) {
+    state.suggestions = state.suggestions.filter((s) => s.id !== x.id);
+    return;
+  }
+  const { comments, ...summary } = x;
+  const i = state.suggestions.findIndex((s) => s.id === x.id);
+  // Broadcasts don't know who is viewing, so work out "voted" locally.
+  const merged = { ...summary, voted: summary.voters.includes(state.me.id) };
+  if (i >= 0) state.suggestions[i] = merged; else state.suggestions.unshift(merged);
+}
+
+async function voteSuggestion(x) {
+  try {
+    const { suggestion } = await api(`/api/suggestions/${x.id}/vote`, { method: 'POST', body: { vote: !x.voted } });
+    upsertSuggestion(suggestion);
+    if (!document.querySelector('.modal-backdrop')) renderShell();
+    return suggestion;
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function voteButton(x, onVoted) {
+  return h('button', {
+    class: `vote ${x.voted ? 'on' : ''}`, 'aria-pressed': x.voted ? 'true' : 'false',
+    title: x.voted ? 'Remove your vote' : 'Vote for this',
+    onclick: async (e) => { e.stopPropagation(); const updated = await voteSuggestion(x); if (updated) onVoted?.(updated); },
+  }, h('span', { class: 'arrow' }, '▲'), h('span', {}, x.votes));
+}
+
+function suggestionRow(x) {
+  return h('article', { class: 'card suggestion', onclick: () => go(`#/suggestions/${x.id}`) },
+    voteButton(x),
+    h('div', { class: 'suggestion-main' },
+      h('div', { class: 'suggestion-head' }, h('h3', {}, x.title), h('span', { class: `chip s-${x.status}` }, SUGGESTION_LABELS[x.status])),
+      x.details && h('p', { class: 'muted' }, x.details.length > 180 ? `${x.details.slice(0, 180)}…` : x.details),
+      h('div', { class: 'foot' }, avatar(x.userId, 'sm'), h('span', {}, userName(x.userId)),
+        h('span', {}, `· ${shortDate(x.createdAt)}`), h('span', { class: 'grow' }), h('span', {}, `💬 ${x.commentCount}`))));
+}
+
+function renderSuggestions() {
+  const all = state.suggestions || [];
+  const filters = [['active', 'Open & planned'], ['done', 'Done'], ['not-now', 'Not now'], ['all', 'All']];
+  const shown = all
+    .filter((x) => suggestionFilter === 'all' || (suggestionFilter === 'active' ? ['open', 'planned'].includes(x.status) : x.status === suggestionFilter))
+    .sort((a, b) => (suggestionSort === 'top' ? b.votes - a.votes || b.id - a.id : b.id - a.id));
+  if (state.route.id) afterRenderHooks.push(() => openSuggestion(state.route.id));
+
+  const title = h('input', { type: 'text', name: 'title', id: 'suggestion-title', required: true, maxlength: 140, placeholder: 'e.g. Monthly prayer and fasting day for our businesses' });
+  const details = h('textarea', { name: 'details', id: 'suggestion-details', rows: 2, maxlength: 2000, placeholder: 'Add details (optional)' });
+
+  return [
+    topbar('Suggestions', 'Ideas for what we could do together. Vote up the ones you want to see.'),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner' },
+      h('div', { class: 'card suggest-box' },
+        h('h2', { style: 'font-size:16px;margin-bottom:10px' }, 'Have an idea for the network?'),
+        form([title, details], {
+          submitLabel: 'Post suggestion',
+          onSubmit: async (values) => {
+            const { suggestion } = await api('/api/suggestions', { method: 'POST', body: values });
+            upsertSuggestion(suggestion);
+            suggestionFilter = 'active';
+            suggestionSort = 'new';
+            renderShell();
+            toast('Suggestion posted');
+          },
+        })),
+      h('div', { class: 'toolbar' },
+        h('div', { class: 'tags' }, filters.map(([key, label]) => h('button', {
+          class: `btn small ${suggestionFilter === key ? 'on' : ''}`, onclick: () => { suggestionFilter = key; renderShell(); },
+        }, label))),
+        h('div', { class: 'tags' }, [['top', 'Most votes'], ['new', 'Newest']].map(([key, label]) => h('button', {
+          class: `btn small ghost ${suggestionSort === key ? 'on' : ''}`, onclick: () => { suggestionSort = key; renderShell(); },
+        }, label)))),
+      shown.length ? h('div', { class: 'suggestion-list' }, shown.map(suggestionRow))
+        : h('div', { class: 'card empty' }, all.length ? 'Nothing here yet.' : 'No suggestions yet. Share the first idea above!'))),
+  ];
+}
+
+async function openSuggestion(id) {
+  let x;
+  try {
+    ({ suggestion: x } = await api(`/api/suggestions/${id}`));
+  } catch (err) {
+    toast(err.message, 'error');
+    return go('#/suggestions');
+  }
+  const isOwner = x.userId === state.me.id;
+  const isAdmin = state.me.role === 'admin';
+  const refresh = (updated) => { upsertSuggestion(updated); openSuggestion(updated.id); };
+
+  const statusPicker = isAdmin && h('div', { class: 'detail-block' }, h('h4', {}, 'Status (admins)'),
+    h('div', { class: 'tags' }, Object.entries(SUGGESTION_LABELS).map(([value, label]) => h('button', {
+      class: `btn small ${x.status === value ? 'on' : ''}`,
+      onclick: async () => {
+        try {
+          refresh((await api(`/api/suggestions/${id}`, { method: 'PATCH', body: { status: value } })).suggestion);
+        } catch (err) { toast(err.message, 'error'); }
+      },
+    }, label))));
+
+  const close = openModal(x.title, h('div', {},
+    h('div', { class: 'suggestion-meta' },
+      voteButton(x, refresh),
+      h('span', { class: `chip s-${x.status}` }, SUGGESTION_LABELS[x.status]),
+      avatar(x.userId, 'sm'), h('span', {}, userName(x.userId)), h('span', { class: 'muted small' }, `· ${shortDate(x.createdAt)}`)),
+    x.details && h('div', { class: 'detail-block' }, h('p', { html: formatText(x.details) })),
+    x.voters.length > 0 && h('div', { class: 'detail-block' }, h('h4', {}, `Supported by (${x.voters.length})`),
+      h('div', { class: 'small muted' }, x.voters.map(userName).join(', '))),
+    statusPicker,
+    h('div', { class: 'detail-block' }, h('h4', {}, `Discussion (${x.comments.length})`),
+      x.comments.map((c) => h('div', { class: 'comment' }, avatar(c.userId, 'sm'),
+        h('div', {}, h('strong', {}, userName(c.userId)), h('span', { class: 'muted small' }, ` · ${shortDate(c.createdAt)}`),
+          h('p', { html: formatText(c.body) })))),
+      form([h('textarea', { name: 'body', rows: 2, required: true, maxlength: 2000, placeholder: 'Add a thought or a way to make this happen…' })], {
+        submitLabel: 'Comment',
+        onSubmit: async (values) => refresh((await api(`/api/suggestions/${id}/comments`, { method: 'POST', body: values })).suggestion),
+      })),
+    (isOwner || isAdmin) && h('div', { class: 'modal-foot', style: 'border-top:1px solid var(--border);padding-top:14px' },
+      h('button', { class: 'btn danger ghost', onclick: async () => {
+        if (!confirm('Delete this suggestion?')) return;
+        await api(`/api/suggestions/${id}`, { method: 'DELETE' });
+        upsertSuggestion({ id, deleted: true });
+        close();
+        renderShell();
+      } }, 'Delete'),
+      h('span', { class: 'spacer' }),
+      isOwner && h('button', { class: 'btn', onclick: () => editSuggestion(x) }, 'Edit'))),
+  {
+    wide: true,
+    onClose: () => {
+      if (location.hash === `#/suggestions/${id}`) history.replaceState(null, '', '#/suggestions');
+      state.route = parseRoute();
+      renderShell();
+    },
+  });
+}
+
+function editSuggestion(x) {
+  openModal('Edit suggestion', form([
+    field('Suggestion', h('input', { type: 'text', name: 'title', id: 'edit-suggestion-title', required: true, maxlength: 140, value: x.title })),
+    field('Details', h('textarea', { name: 'details', id: 'edit-suggestion-details', rows: 4, maxlength: 2000, value: x.details })),
+  ], {
+    submitLabel: 'Save',
+    onSubmit: async (values) => {
+      const { suggestion } = await api(`/api/suggestions/${x.id}`, { method: 'PATCH', body: values });
+      upsertSuggestion(suggestion);
+      openSuggestion(x.id);
+    },
+  }));
+}
+
 // ---------- calls ----------
 
 function callCard(call, { limit = 3 } = {}) {
@@ -1178,6 +1341,13 @@ function connectSocket() {
     else refreshSidebar();
   });
 
+  socket.on('suggestion:changed', (x) => {
+    upsertSuggestion(x);
+    const modalOpen = document.querySelector('.modal-backdrop');
+    if (!modalOpen && state.route.name === 'suggestions') renderShell();
+    else refreshSidebar();
+  });
+
   socket.on('calls:changed', async () => {
     await loadCalls();
     const modalOpen = document.querySelector('.modal-backdrop');
@@ -1207,8 +1377,9 @@ async function logout(silent = false) {
 
 async function start() {
   applyBootstrap(await api('/api/bootstrap'));
-  const [projects] = await Promise.all([api('/api/projects'), loadCalls()]);
+  const [projects, suggestions] = await Promise.all([api('/api/projects'), api('/api/suggestions'), loadCalls()]);
   state.projects = projects.projects;
+  state.suggestions = suggestions.suggestions;
   state.route = parseRoute();
   renderShell();
   connectSocket();

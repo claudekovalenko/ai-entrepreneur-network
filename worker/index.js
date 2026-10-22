@@ -8,6 +8,7 @@ const COOKIE = 'aen_session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 60;
 const REACTIONS = ['🙏', '🔥', '❤️', '🙌', '💡', '😂'];
 const PROJECT_STATUSES = ['looking', 'in-progress', 'launched', 'paused'];
+const SUGGESTION_STATUSES = ['open', 'planned', 'done', 'not-now'];
 const MAX_MESSAGE = 4000;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
@@ -489,6 +490,114 @@ on('POST', '/api/projects/:id/comments', async ({ db, user, params, body, emit }
   const text = str(body.body, { max: 2000, required: true, field: 'Comment' });
   await db.prepare('INSERT INTO project_comments (project_id, user_id, body) VALUES (?, ?, ?)').bind(p.id, user.id, text).run();
   return { project: await projectChanged(db, p.id, emit) };
+});
+
+// ----- suggestions -----
+
+async function serializeSuggestions(db, rows, userId, { detail = false } = {}) {
+  if (!rows.length) return [];
+  const ids = JSON.stringify(rows.map((r) => r.id));
+  const [votes, counts, comments] = await db.batch([
+    db.prepare('SELECT suggestion_id, user_id FROM suggestion_votes WHERE suggestion_id IN (SELECT value FROM json_each(?))').bind(ids),
+    db.prepare(`SELECT suggestion_id, COUNT(*) AS n FROM suggestion_comments
+      WHERE suggestion_id IN (SELECT value FROM json_each(?)) GROUP BY suggestion_id`).bind(ids),
+    db.prepare(`SELECT * FROM suggestion_comments WHERE ? AND suggestion_id IN (SELECT value FROM json_each(?)) ORDER BY id`)
+      .bind(detail ? 1 : 0, ids),
+  ]);
+  const countFor = new Map(counts.results.map((r) => [r.suggestion_id, r.n]));
+  return rows.map((s) => {
+    const voters = votes.results.filter((v) => v.suggestion_id === s.id).map((v) => v.user_id);
+    const out = {
+      id: s.id, userId: s.user_id, title: s.title, details: s.details, status: s.status, createdAt: s.created_at,
+      votes: voters.length, voters, commentCount: countFor.get(s.id) ?? 0,
+    };
+    if (userId != null) out.voted = voters.includes(userId);
+    if (detail) {
+      out.comments = comments.results.filter((c) => c.suggestion_id === s.id)
+        .map((c) => ({ id: c.id, userId: c.user_id, body: c.body, createdAt: c.created_at }));
+    }
+    return out;
+  });
+}
+
+async function loadSuggestion(db, params) {
+  const s = await db.prepare('SELECT * FROM suggestions WHERE id = ?').bind(intParam(params.id)).first();
+  if (!s) throw new HttpError(404, 'Suggestion not found');
+  return s;
+}
+
+// Broadcasts the suggestion's latest state and returns its detailed view for the caller.
+async function suggestionChanged(db, id, user, emit) {
+  const row = await db.prepare('SELECT * FROM suggestions WHERE id = ?').bind(id).first();
+  if (!row) {
+    emit('suggestion:changed', { id, deleted: true });
+    return null;
+  }
+  const [detail] = await serializeSuggestions(db, [row], user.id, { detail: true });
+  const { comments, voted, ...summary } = detail;
+  emit('suggestion:changed', summary);
+  return detail;
+}
+
+on('GET', '/api/suggestions', async ({ db, user }) => ({
+  suggestions: await serializeSuggestions(db, await all(db.prepare('SELECT * FROM suggestions ORDER BY id DESC')), user.id),
+  statuses: SUGGESTION_STATUSES,
+}));
+
+on('POST', '/api/suggestions', async ({ db, user, body, emit }) => {
+  const title = str(body.title, { max: 140, required: true, field: 'Suggestion' });
+  const details = str(body.details, { max: 2000, field: 'Details' });
+  const row = await db.prepare('INSERT INTO suggestions (user_id, title, details) VALUES (?, ?, ?) RETURNING id')
+    .bind(user.id, title, details).first();
+  // Suggesters back their own idea.
+  await db.prepare('INSERT INTO suggestion_votes (suggestion_id, user_id) VALUES (?, ?)').bind(row.id, user.id).run();
+  return { suggestion: await suggestionChanged(db, row.id, user, emit) };
+});
+
+on('GET', '/api/suggestions/:id', async ({ db, user, params }) => {
+  const [suggestion] = await serializeSuggestions(db, [await loadSuggestion(db, params)], user.id, { detail: true });
+  return { suggestion };
+});
+
+on('PATCH', '/api/suggestions/:id', async ({ db, user, params, body, emit }) => {
+  const s = await loadSuggestion(db, params);
+  const isOwner = s.user_id === user.id;
+  const isAdmin = user.role === 'admin';
+  if (!isOwner && !isAdmin) throw new HttpError(403, 'Only the person who suggested this can edit it');
+  const title = isOwner ? str(body.title ?? s.title, { max: 140, required: true, field: 'Suggestion' }) : s.title;
+  const details = isOwner ? str(body.details ?? s.details, { max: 2000, field: 'Details' }) : s.details;
+  let status = s.status;
+  if (body.status !== undefined && body.status !== s.status) {
+    if (!isAdmin) throw new HttpError(403, 'Only admins can change the status');
+    if (!SUGGESTION_STATUSES.includes(body.status)) throw new HttpError(400, 'Unknown status');
+    status = body.status;
+  }
+  await db.prepare('UPDATE suggestions SET title = ?, details = ?, status = ? WHERE id = ?').bind(title, details, status, s.id).run();
+  return { suggestion: await suggestionChanged(db, s.id, user, emit) };
+});
+
+on('DELETE', '/api/suggestions/:id', async ({ db, user, params, emit }) => {
+  const s = await loadSuggestion(db, params);
+  if (s.user_id !== user.id && user.role !== 'admin') throw new HttpError(403, 'Only the person who suggested this can delete it');
+  await db.prepare('DELETE FROM suggestions WHERE id = ?').bind(s.id).run();
+  await suggestionChanged(db, s.id, user, emit);
+  return { ok: true };
+});
+
+on('POST', '/api/suggestions/:id/vote', async ({ db, user, params, body, emit }) => {
+  const s = await loadSuggestion(db, params);
+  const stmt = body.vote === false
+    ? 'DELETE FROM suggestion_votes WHERE suggestion_id = ? AND user_id = ?'
+    : 'INSERT OR IGNORE INTO suggestion_votes (suggestion_id, user_id) VALUES (?, ?)';
+  await db.prepare(stmt).bind(s.id, user.id).run();
+  return { suggestion: await suggestionChanged(db, s.id, user, emit) };
+});
+
+on('POST', '/api/suggestions/:id/comments', async ({ db, user, params, body, emit }) => {
+  const s = await loadSuggestion(db, params);
+  const text = str(body.body, { max: 2000, required: true, field: 'Comment' });
+  await db.prepare('INSERT INTO suggestion_comments (suggestion_id, user_id, body) VALUES (?, ?, ?)').bind(s.id, user.id, text).run();
+  return { suggestion: await suggestionChanged(db, s.id, user, emit) };
 });
 
 // ----- calls -----

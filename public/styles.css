@@ -228,6 +228,35 @@ textarea { resize: vertical; min-height: 80px; }
 .member-card h3 { font-size: 15px; display: flex; align-items: center; gap: 6px; }
 .member-card p { margin: 2px 0 0; font-size: 13.5px; }
 
+/* ---------- suggestions ---------- */
+.suggest-box { margin-bottom: 18px; }
+.suggest-box textarea { min-height: 56px; margin-top: 8px; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.suggestion-list { display: grid; gap: 12px; }
+.suggestion { display: flex; gap: 14px; align-items: flex-start; cursor: pointer; }
+.suggestion-main { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.suggestion-head { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; }
+.suggestion-head h3 { font-size: 16px; overflow-wrap: anywhere; }
+.suggestion-main p { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.suggestion .foot { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.suggestion .foot .grow { flex: 1; }
+.suggestion-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.vote {
+  display: grid; justify-items: center; gap: 0; min-width: 48px; padding: 6px 8px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); font-weight: 700; font-variant-numeric: tabular-nums; flex: none;
+}
+.vote .arrow { font-size: 12px; color: var(--muted); }
+.vote:hover { border-color: var(--accent); }
+.vote.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.vote.on .arrow { color: var(--accent-strong); }
+.chip.s-planned { background: #e3ecfb; color: #2c5aa0; border-color: transparent; }
+.chip.s-done { background: #ddf3e6; color: var(--ok); border-color: transparent; }
+.chip.s-open { background: var(--accent-soft); color: var(--accent-strong); border-color: transparent; }
+@media (prefers-color-scheme: dark) {
+  .chip.s-planned { background: #1d2c47; color: #8db4f2; }
+  .chip.s-done { background: #173326; color: #6fd29b; }
+}
+
 /* ---------- vision ---------- */
 .hero-link { color: var(--gold); font-weight: 600; text-decoration: none; width: fit-content; margin-top: 4px; }
 .hero-link:hover { text-decoration: underline; }
