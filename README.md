@@ -52,7 +52,12 @@ INVITE_CODE=kingdom-builders SECURE_COOKIES=true npm start
 
 ### Deploying
 
-It is a single Node process with a SQLite file, so any host that runs Node and
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/claudekovalenko/ai-entrepreneur-network)
+
+The button uses `render.yaml`: a Starter web service with a 1 GB disk for the
+database. Render asks for an `INVITE_CODE` during setup.
+
+Alternatively, it is a single Node process with a SQLite file, so any host that runs Node and
 gives you a persistent disk works (Render, Railway, Fly.io, a small VPS). Point
 `DATABASE_FILE` at the persistent volume, set `INVITE_CODE`, and put it behind HTTPS.
 
