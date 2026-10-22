@@ -192,6 +192,7 @@ function parseRoute() {
   if (parts[0] === 'projects') return { name: 'projects', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'calls') return { name: 'calls' };
   if (parts[0] === 'members') return { name: 'members' };
+  if (parts[0] === 'vision') return { name: 'vision' };
   return { name: 'home' };
 }
 const go = (hash) => { location.hash = hash; };
@@ -233,7 +234,8 @@ function renderAuth(mode = 'login') {
         h('li', {}, 'Private messages with any member'),
         h('li', {}, 'A project board to ask for help and collaborate'),
         h('li', {}, 'Weekly and bi-weekly community calls')),
-      h('blockquote', {}, `“${verse}” — ${ref}`)),
+      h('blockquote', {}, `“${verse}” — ${ref}`),
+      h('p', { class: 'auth-vision' }, h('strong', {}, 'Our vision: '), VISION.statement)),
     h('section', { class: 'auth-panel' },
       h('div', { class: 'auth-card' },
         h('h2', { class: 'serif' }, isRegister ? 'Join the network' : 'Welcome back'),
@@ -270,6 +272,7 @@ function renderSidebar() {
       h('div', {}, h('strong', {}, 'AI Entrepreneur Network'), h('span', {}, `${state.users.size} members · ${state.online.size} online`))),
     h('nav', { class: 'sidebar-scroll' },
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
+      navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/calls', icon: h('span', { class: 'icon' }, '☏'), label: 'Community calls', active: r.name === 'calls' }),
       navItem({ href: '#/members', icon: h('span', { class: 'icon' }, '☺'), label: 'Members', active: r.name === 'members' }),
@@ -327,6 +330,7 @@ function renderMain() {
   else if (r.name === 'projects') main.append(...renderProjects());
   else if (r.name === 'calls') main.append(...renderCalls());
   else if (r.name === 'members') main.append(...renderMembers());
+  else if (r.name === 'vision') main.append(...renderVision());
   else main.append(...renderHome());
   return main;
 }
@@ -353,7 +357,8 @@ function renderHome() {
       h('section', { class: 'hero-card' },
         h('h1', { class: 'serif' }, `Welcome, ${firstName}.`),
         h('p', {}, 'We are Christians building AI-powered businesses with a purpose: to create margin — time, money and freedom — that we can pour into the Great Commission. Encourage someone today, share what you are learning, and ask for help where you need it.'),
-        h('div', { class: 'verse' }, `“${verse}” — ${ref}`)),
+        h('div', { class: 'verse' }, `“${verse}” — ${ref}`),
+        h('a', { class: 'hero-link', href: '#/vision' }, 'Read our vision →')),
 
       h('div', { class: 'stats' },
         h('div', { class: 'stat' }, h('b', {}, state.users.size), h('span', {}, 'members')),
@@ -376,6 +381,50 @@ function renderHome() {
       h('div', { class: 'grid' }, state.channels.map((c) => h('a', { class: 'card', href: roomHash(c.room), style: 'text-decoration:none;color:inherit' },
         h('h3', { style: 'font-size:15px' }, `# ${c.name}`, c.unread ? h('span', { class: 'badge', style: 'margin-left:8px' }, c.unread) : null),
         h('p', { class: 'muted small', style: 'margin:4px 0 0' }, c.description))))))
+  ];
+}
+
+// ---------- vision ----------
+
+const VISION = {
+  statement: 'Use AI to build businesses that buy back our time, so we can give more of our lives to making disciples.',
+  why: 'Many of us feel called to ministry but spend most of our hours earning a living. AI has changed what one person can build. We believe God can use these tools to help us create ventures that run with less of our time, freeing hours, income and margin for the Great Commission, whether that means serving more in our local church or stepping into full-time ministry.',
+  pillars: [
+    ['Encourage', 'Build one another up. Share wins, scripture, and what God is doing. Pray for each other by name in #prayer-requests.'],
+    ['Share', 'Pass on the tools, prompts, tutorials, and lessons that are working for you, so no one has to learn everything alone.'],
+    ['Collaborate', 'Post the project you are building and the help you need. Offer your skills to someone else’s venture.'],
+    ['Gather', 'Meet on the weekly or bi-weekly community call to pray, celebrate progress, learn together, and stay accountable.'],
+  ],
+  values: [
+    ['Kingdom first', 'The business serves the mission, not the other way around. Success is measured in time and resources freed for making disciples.'],
+    ['Excellence', '“Whatever you do, work heartily, as for the Lord and not for men.” (Colossians 3:23)'],
+    ['Generosity', 'Give help freely, share credit gladly, and assume the best of each other.'],
+    ['Integrity', 'Build honest products, make honest claims, and treat customers the way Christ would.'],
+    ['Iron sharpens iron', 'Speak truth in love. Ask hard questions and receive them well. (Proverbs 27:17)'],
+  ],
+};
+
+function renderVision() {
+  return [
+    topbar('Our vision', 'Why this network exists and how we build together'),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner vision' },
+      h('section', { class: 'hero-card' },
+        h('div', { class: 'eyebrow' }, 'The vision'),
+        h('h1', { class: 'serif' }, VISION.statement),
+        h('div', { class: 'verse' }, '“Go therefore and make disciples of all nations…” — Matthew 28:19')),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'Why we exist'),
+        h('p', {}, VISION.why)),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'What we do here'),
+        h('div', { class: 'pillars' }, VISION.pillars.map(([title, text]) =>
+          h('div', { class: 'card' }, h('h3', {}, title), h('p', { class: 'muted' }, text))))),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'How we treat one another'),
+        h('dl', { class: 'values' }, VISION.values.map(([title, text]) => [h('dt', {}, title), h('dd', {}, text)]))),
+      h('section', { class: 'card vision-win' },
+        h('h3', {}, 'The win'),
+        h('p', {}, 'Every hour a member’s business gives back is an hour that can go to discipleship. When you launch, land a customer, or step back from a job, share it in #wins so we can celebrate what God is doing.')))),
   ];
 }
 

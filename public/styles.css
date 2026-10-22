@@ -228,6 +228,25 @@ textarea { resize: vertical; min-height: 80px; }
 .member-card h3 { font-size: 15px; display: flex; align-items: center; gap: 6px; }
 .member-card p { margin: 2px 0 0; font-size: 13.5px; }
 
+/* ---------- vision ---------- */
+.hero-link { color: var(--gold); font-weight: 600; text-decoration: none; width: fit-content; margin-top: 4px; }
+.hero-link:hover { text-decoration: underline; }
+.hero-card .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.vision .hero-card h1 { font-size: clamp(24px, 3.4vw, 34px); max-width: 760px; text-wrap: balance; }
+.vision-block { margin-top: 28px; }
+.vision-block h2 { font-size: 22px; margin-bottom: 10px; }
+.vision-block > p { margin: 0; max-width: 68ch; font-size: 16px; }
+.pillars { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.pillars h3 { font-size: 16px; color: var(--accent-strong); }
+.pillars p { margin: 6px 0 0; font-size: 14.5px; }
+.values { display: grid; grid-template-columns: minmax(140px, 200px) 1fr; gap: 12px 20px; margin: 0; }
+.values dt { font-weight: 700; }
+.values dd { margin: 0; color: var(--muted); }
+.vision-win { margin-top: 28px; background: var(--accent-soft); border-color: transparent; box-shadow: none; }
+.vision-win p { margin: 6px 0 0; }
+.auth-vision { font-size: 15px !important; color: #f4e6c6 !important; }
+@media (max-width: 600px) { .values { grid-template-columns: 1fr; gap: 2px; } .values dd { margin-bottom: 10px; } }
+
 /* ---------- chat ---------- */
 .chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .messages { flex: 1; overflow-y: auto; padding: 16px 24px 8px; }
