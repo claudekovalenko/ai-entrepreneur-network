@@ -35,22 +35,23 @@ It runs entirely on Cloudflare's free Workers plan:
 The first person to register becomes the **admin**. Admins can create channels,
 schedule calls, and make other members admins from their profile.
 
-## Going live (Cloudflare)
+## Going live (Cloudflare, deployed by GitHub Actions)
 
 The D1 database `ai-entrepreneur-network` already exists in the Cloudflare
-account and is referenced in `wrangler.jsonc`.
+account and is referenced in `wrangler.jsonc`. The workflow in
+`.github/workflows/deploy.yml` runs the tests and then deploys on every push to
+`main`. It needs three repository secrets
+(**Settings → Secrets and variables → Actions → New repository secret**):
 
-1. In the Cloudflare dashboard go to **Workers & Pages → Create application →
-   Import a repository**, pick `ai-entrepreneur-network`, and keep the project
-   name `ai-entrepreneur-network` (it must match `wrangler.jsonc`). Leave the
-   build command empty and the deploy command as `npx wrangler deploy`.
-2. After the first deploy, open the Worker's **Settings → Variables and Secrets**
-   and add a secret named `INVITE_CODE`. People will need it to join. Without it,
-   anyone with the link can sign up.
-3. Visit the `*.workers.dev` link, register first (you become admin), then share
-   the link and invite code.
+| Secret                  | Where to get it                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | Cloudflare → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"     |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare → Workers & Pages → Account ID in the right-hand panel                  |
+| `INVITE_CODE`           | Any code you choose; people enter it to join                                       |
 
-Every push to `main` redeploys automatically.
+After adding them, open **Actions → Test and deploy → Run workflow**. The live
+link appears at the end of the deploy step (`https://ai-entrepreneur-network.<subdomain>.workers.dev`).
+Register first to become the admin, then share the link and invite code.
 
 ## Development
 
