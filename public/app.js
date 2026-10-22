@@ -228,7 +228,7 @@ function renderAuth(mode = 'login') {
     h('section', { class: 'auth-hero' },
       h('div', { class: 'brand-mark' }, '✝'),
       h('h1', { class: 'serif' }, 'AI Entrepreneur Network'),
-      h('p', {}, 'A community of Christian builders using AI to create ventures that buy back time — so more of our lives can go toward making disciples.'),
+      h('p', {}, 'A community of Christian builders using AI to create ventures that give back time, not to hustle or chase wealth, but to have more of our lives for God, family, serving, and making disciples.'),
       h('ul', {},
         h('li', {}, 'Group channels for encouragement, prayer, ideas and content'),
         h('li', {}, 'Private messages with any member'),
@@ -356,7 +356,7 @@ function renderHome() {
     h('div', { class: 'page' }, h('div', { class: 'page-inner' },
       h('section', { class: 'hero-card' },
         h('h1', { class: 'serif' }, `Welcome, ${firstName}.`),
-        h('p', {}, 'We are Christians building AI-powered businesses with a purpose: to create margin — time, money and freedom — that we can pour into the Great Commission. Encourage someone today, share what you are learning, and ask for help where you need it.'),
+        h('p', {}, 'We are Christians using AI to build businesses that give us back our time, not to hustle harder or chase wealth, but to have more of our lives for loving God, our families, serving others, and making disciples. Encourage someone today, share what you are learning, and ask for help where you need it.'),
         h('div', { class: 'verse' }, `“${verse}” — ${ref}`),
         h('a', { class: 'hero-link', href: '#/vision' }, 'Read our vision →')),
 
@@ -387,8 +387,13 @@ function renderHome() {
 // ---------- vision ----------
 
 const VISION = {
-  statement: 'Use AI to build businesses that buy back our time, so we can give more of our lives to making disciples.',
-  why: 'Many of us feel called to ministry but spend most of our hours earning a living. AI has changed what one person can build. We believe God can use these tools to help us create ventures that run with less of our time, freeing hours, income and margin for the Great Commission, whether that means serving more in our local church or stepping into full-time ministry.',
+  statement: 'Use AI to build businesses that give us back our time, for loving God, our families, and making disciples.',
+  why: 'Many of us feel called to ministry but spend most of our hours earning a living. AI has changed what one person can build. We believe God can use these tools to help us create ventures that run with less of our time, so we have more of it for worship, our families, serving our churches and neighbors, and the Great Commission, including full-time ministry for some.',
+  notThis: [
+    ['Not hustle culture', 'We are not here to work more hours, grind harder, or build an identity around business. The goal is fewer hours, not more.'],
+    ['Not getting rich for its own sake', 'Income is a tool, not the prize. We measure success by the time and freedom given back to God, family, and serving others.'],
+    ['Not at the cost of what matters most', 'No venture is worth losing time with the Lord, your spouse, or your children. Sabbath rest is part of the plan, not an obstacle to it.'],
+  ],
   pillars: [
     ['Encourage', 'Build one another up. Share wins, scripture, and what God is doing. Pray for each other by name in #prayer-requests.'],
     ['Share', 'Pass on the tools, prompts, tutorials, and lessons that are working for you, so no one has to learn everything alone.'],
@@ -396,7 +401,8 @@ const VISION = {
     ['Gather', 'Meet on the weekly or bi-weekly community call to pray, celebrate progress, learn together, and stay accountable.'],
   ],
   values: [
-    ['Kingdom first', 'The business serves the mission, not the other way around. Success is measured in time and resources freed for making disciples.'],
+    ['Kingdom first', 'The business serves the mission, not the other way around. “Seek first the kingdom of God.” (Matthew 6:33)'],
+    ['Family and rest', 'Protect time with your family and keep a rhythm of Sabbath. Freed time is meant for people, not for the next project.'],
     ['Excellence', '“Whatever you do, work heartily, as for the Lord and not for men.” (Colossians 3:23)'],
     ['Generosity', 'Give help freely, share credit gladly, and assume the best of each other.'],
     ['Integrity', 'Build honest products, make honest claims, and treat customers the way Christ would.'],
@@ -416,6 +422,11 @@ function renderVision() {
         h('h2', { class: 'serif' }, 'Why we exist'),
         h('p', {}, VISION.why)),
       h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'What this is not'),
+        h('div', { class: 'pillars not-this' }, VISION.notThis.map(([title, text]) =>
+          h('div', { class: 'card' }, h('h3', {}, title), h('p', { class: 'muted' }, text)))),
+        h('p', { class: 'vision-quote' }, '“For what does it profit a man to gain the whole world and forfeit his soul?” — Mark 8:36')),
+      h('section', { class: 'vision-block' },
         h('h2', { class: 'serif' }, 'What we do here'),
         h('div', { class: 'pillars' }, VISION.pillars.map(([title, text]) =>
           h('div', { class: 'card' }, h('h3', {}, title), h('p', { class: 'muted' }, text))))),
@@ -424,7 +435,7 @@ function renderVision() {
         h('dl', { class: 'values' }, VISION.values.map(([title, text]) => [h('dt', {}, title), h('dd', {}, text)]))),
       h('section', { class: 'card vision-win' },
         h('h3', {}, 'The win'),
-        h('p', {}, 'Every hour a member’s business gives back is an hour that can go to discipleship. When you launch, land a customer, or step back from a job, share it in #wins so we can celebrate what God is doing.')))),
+        h('p', {}, 'The win is not a bigger number. It is an evening home with your kids, a morning in the Word, a week spent serving, or a step into full-time ministry. When your business gives you time back, share it in #wins so we can celebrate what God is doing.')))),
   ];
 }
 
