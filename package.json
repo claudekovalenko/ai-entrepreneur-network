@@ -1,0 +1,33 @@
+{
+  "name": "ai-entrepreneur-network",
+  "version": "1.0.0",
+  "description": "A private community for Christian AI entrepreneurs building ventures that free up time for ministry.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/claudekovalenko/ai-entrepreneur-network.git"
+  },
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/claudekovalenko/ai-entrepreneur-network/issues"
+  },
+  "homepage": "https://github.com/claudekovalenko/ai-entrepreneur-network#readme",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.22.3",
+    "socket.io": "^4.8.4"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "private": true,
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  }
+}
