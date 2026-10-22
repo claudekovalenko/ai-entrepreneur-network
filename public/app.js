@@ -1002,9 +1002,59 @@ function openProfileEditor(isNew = false) {
 
 // ---------- realtime ----------
 
+// Minimal socket.io-style wrapper around a reconnecting WebSocket.
+class Realtime {
+  constructor() {
+    this.handlers = new Map();
+    this.retry = 0;
+    this.closed = false;
+    this.open();
+  }
+
+  on(event, fn) { this.handlers.set(event, fn); }
+
+  fire(event, data) { this.handlers.get(event)?.(data); }
+
+  emit(type, room) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type, room }));
+  }
+
+  open() {
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws`);
+    let opened = false;
+    this.ws = ws;
+    ws.onopen = () => {
+      opened = true;
+      this.retry = 0;
+      this.ping = setInterval(() => ws.send('ping'), 30_000);
+      this.fire('connect');
+    };
+    ws.onmessage = (e) => {
+      if (e.data === 'pong') return;
+      try {
+        const { event, data } = JSON.parse(e.data);
+        this.fire(event, data);
+      } catch { /* ignore malformed frames */ }
+    };
+    ws.onclose = () => {
+      clearInterval(this.ping);
+      if (this.closed) return;
+      if (!opened) this.fire('connect_error');
+      this.timer = setTimeout(() => this.open(), Math.min(30_000, 1000 * 2 ** this.retry++));
+    };
+  }
+
+  disconnect() {
+    this.closed = true;
+    clearTimeout(this.timer);
+    clearInterval(this.ping);
+    this.ws?.close();
+  }
+}
+
 function connectSocket() {
   state.socket?.disconnect();
-  const socket = io({ withCredentials: true });
+  const socket = new Realtime();
   state.socket = socket;
 
   socket.on('connect', async () => {
@@ -1019,7 +1069,9 @@ function connectSocket() {
       else { refreshSidebar(); renderMessages(state.route.room); }
     } catch { /* handled by next reconnect */ }
   });
-  socket.on('connect_error', (err) => { if (err.message === 'unauthorized') logout(true); });
+  socket.on('connect_error', () => {
+    api('/api/me').catch((err) => { if (err.status === 401) logout(true); });
+  });
 
   socket.on('message:new', addMessage);
   socket.on('message:update', updateMessage);

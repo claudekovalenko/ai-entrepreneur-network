@@ -1,20 +1,38 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { io as connect } from 'socket.io-client';
-import { openDb } from '../server/db.js';
-import { createApp } from '../server/app.js';
-import { upcomingOccurrences, zonedToUtc } from '../server/schedule.js';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { upcomingOccurrences, zonedToUtc } from '../worker/schedule.js';
 
-let server;
-let base;
+// Runs the real Worker (D1 + Durable Objects) locally with a throwaway database.
+let wrangler;
+let stateDir;
+const port = 8800 + Math.floor(Math.random() * 500);
+const base = `http://localhost:${port}`;
 
 before(async () => {
-  ({ server } = createApp({ db: openDb(':memory:'), inviteCode: 'faith' }));
-  await new Promise((resolve) => server.listen(0, resolve));
-  base = `http://localhost:${server.address().port}`;
+  stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aen-test-'));
+  wrangler = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--persist-to', stateDir,
+    '--var', 'INVITE_CODE:faith', '--show-interactive-dev-session=false'], { stdio: 'ignore', detached: true });
+  for (let i = 0; i < 120; i++) {
+    try {
+      if ((await fetch(`${base}/api/config`)).ok) return;
+    } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error('wrangler dev did not start');
 });
 
-after(() => new Promise((resolve) => server.close(resolve)));
+after(() => {
+  process.kill(-wrangler.pid);
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+function connect(cookie) {
+  return new WebSocket(`ws://localhost:${port}/api/ws`, { headers: cookie ? { cookie } : {} });
+}
 
 function client() {
   let cookie = '';
@@ -99,21 +117,37 @@ test('direct messages are private to the two members', async () => {
   assert.equal((await bob('/api/bootstrap')).data.conversations[0].unread, 1);
 });
 
-test('realtime delivery over sockets', async () => {
-  const socket = connect(base, { extraHeaders: { cookie: bob.cookie() }, transports: ['websocket'] });
-  await new Promise((resolve, reject) => { socket.on('connect', resolve); socket.on('connect_error', reject); });
-  const received = new Promise((resolve) => socket.on('message:new', resolve));
+test('realtime delivery over WebSockets', async () => {
+  const socket = connect(bob.cookie());
+  await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
+  const received = new Promise((resolve) => {
+    socket.onmessage = (e) => {
+      const { event, data } = JSON.parse(e.data);
+      if (event === 'message:new') resolve(data);
+    };
+  });
   const { data } = await alice('/api/bootstrap');
+  assert.ok(data.online.includes(2), 'bob shows as online');
   const ideas = data.channels.find((c) => c.name === 'ideas');
   await alice(`/api/rooms/${ideas.room}/messages`, { method: 'POST', body: { body: 'AI sermon clip tool?' } });
   const message = await received;
   assert.equal(message.body, 'AI sermon clip tool?');
-  socket.disconnect();
+  socket.close();
 
-  const anon = connect(base, { transports: ['websocket'] });
-  const err = await new Promise((resolve) => anon.on('connect_error', resolve));
-  assert.equal(err.message, 'unauthorized');
-  anon.disconnect();
+  const anon = connect();
+  await new Promise((resolve) => { anon.onerror = resolve; anon.onclose = resolve; });
+  assert.notEqual(anon.readyState, WebSocket.OPEN);
+});
+
+test('cross-site and non-JSON writes are rejected', async () => {
+  const res = await fetch(`${base}/api/rooms/c:1/messages`, {
+    method: 'POST', headers: { cookie: alice.cookie(), 'Content-Type': 'text/plain' }, body: '{"body":"x"}',
+  });
+  assert.equal(res.status, 415);
+  const cross = await fetch(`${base}/api/rooms/c:1/messages`, {
+    method: 'POST', headers: { cookie: alice.cookie(), 'Content-Type': 'application/json', Origin: 'https://evil.example' }, body: '{"body":"x"}',
+  });
+  assert.equal(cross.status, 403);
 });
 
 test('only admins manage channels and calls', async () => {

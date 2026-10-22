@@ -22,52 +22,46 @@ It works like a small, focused Slack:
 - **Home dashboard** — mission statement, verse of the day, the next call and
   projects that need help.
 
-## Running it
+## How it runs
 
-Requires Node.js 22.13 or newer (it uses Node's built-in SQLite, so there is no
-database to install).
+It runs entirely on Cloudflare's free Workers plan:
 
-```bash
-npm install
-npm start          # http://localhost:3000
-```
+- **Worker** (`worker/index.js`) serves the API and the browser app in `public/`.
+- **D1** stores members, messages, projects and calls. The tables are created
+  automatically on first use, so there is no migration step.
+- **A Durable Object** (`worker/hub.js`) holds everyone's live connection and
+  pushes new messages, reactions, typing and online status instantly.
 
 The first person to register becomes the **admin**. Admins can create channels,
 schedule calls, and make other members admins from their profile.
 
-### Configuration
+## Going live (Cloudflare)
 
-| Variable          | Default             | Purpose                                                              |
-| ----------------- | ------------------- | -------------------------------------------------------------------- |
-| `PORT`            | `3000`              | Port to listen on                                                    |
-| `INVITE_CODE`     | _(none)_            | If set, people must enter this code to create an account. Recommended. |
-| `DATABASE_FILE`   | `./data/network.db` | Where the SQLite database is stored                                  |
-| `SECURE_COOKIES`  | `false`             | Set to `true` when served over HTTPS                                 |
+The D1 database `ai-entrepreneur-network` already exists in the Cloudflare
+account and is referenced in `wrangler.jsonc`.
 
-Example:
+1. In the Cloudflare dashboard go to **Workers & Pages → Create application →
+   Import a repository**, pick `ai-entrepreneur-network`, and keep the project
+   name `ai-entrepreneur-network` (it must match `wrangler.jsonc`). Leave the
+   build command empty and the deploy command as `npx wrangler deploy`.
+2. After the first deploy, open the Worker's **Settings → Variables and Secrets**
+   and add a secret named `INVITE_CODE`. People will need it to join. Without it,
+   anyone with the link can sign up.
+3. Visit the `*.workers.dev` link, register first (you become admin), then share
+   the link and invite code.
 
-```bash
-INVITE_CODE=kingdom-builders SECURE_COOKIES=true npm start
-```
-
-### Deploying
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/claudekovalenko/ai-entrepreneur-network)
-
-The button uses `render.yaml`: a Starter web service with a 1 GB disk for the
-database. Render asks for an `INVITE_CODE` during setup.
-
-Alternatively, it is a single Node process with a SQLite file, so any host that runs Node and
-gives you a persistent disk works (Render, Railway, Fly.io, a small VPS). Point
-`DATABASE_FILE` at the persistent volume, set `INVITE_CODE`, and put it behind HTTPS.
+Every push to `main` redeploys automatically.
 
 ## Development
 
 ```bash
-npm run dev   # restarts on file changes
-npm test      # API, permissions, realtime and scheduling tests
+npm install
+npm run dev   # local Worker with a local D1 + Durable Object at http://localhost:8787
+npm test      # starts a throwaway local Worker and runs the API/realtime tests
 ```
 
-- `server/` — Express API, Socket.IO realtime, SQLite schema, call scheduling
+Put local settings such as `INVITE_CODE=test` in a `.dev.vars` file.
+
+- `worker/` — API routes, realtime hub, schema, password hashing, call scheduling
 - `public/` — the browser app (plain HTML/CSS/JS, no build step)
 - `test/` — integration tests
