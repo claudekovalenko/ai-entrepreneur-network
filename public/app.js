@@ -242,13 +242,14 @@ function googleButton(label, invite = '') {
   }, h('span', { class: 'g-mark', 'aria-hidden': 'true', html: GOOGLE_MARK }), label);
 }
 
-// mode: 'login', 'join' (with a personal invite), or 'setup' (the very first admin).
+// mode: 'login', 'join' (personal invite link), 'code' (group invite code), or 'setup' (the first admin).
 function renderAuth(mode = 'login', errorMessage = '', invite = null) {
   const [verse, ref] = verseOfDay();
   const app = document.getElementById('app');
   app.innerHTML = '';
-  const joining = mode === 'join' || mode === 'setup';
+  const joining = mode === 'join' || mode === 'setup' || mode === 'code';
   const authError = h('p', { class: `error-text ${errorMessage ? '' : 'hidden'}`, role: 'alert' }, errorMessage);
+  const codeInput = mode === 'code' && h('input', { type: 'text', id: 'invite-code', name: 'inviteCode', required: true, autocomplete: 'off', autocapitalize: 'none' });
   const fields = joining
     ? [
         field('Full name', h('input', { type: 'text', name: 'name', required: true, autocomplete: 'name', value: invite?.name })),
@@ -259,13 +260,29 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
         field('Email', h('input', { type: 'email', name: 'email', required: true, autocomplete: 'email' })),
         field('Password', h('input', { type: 'password', name: 'password', required: true, autocomplete: 'current-password' })),
       ];
-  const heading = { login: 'Welcome back', join: `You’re invited${invite?.name ? `, ${invite.name.split(' ')[0]}` : ''}`, setup: 'Set up ACE' }[mode];
+  const heading = {
+    login: 'Welcome back', join: `You’re invited${invite?.name ? `, ${invite.name.split(' ')[0]}` : ''}`,
+    code: 'Join with your invite code', setup: 'Set up ACE',
+  }[mode];
   const intro = {
     login: 'Sign in to continue the conversation.',
     join: 'Someone in ACE invited you personally. Create your account to join.',
+    code: 'Enter the invite code you were given, then create your account.',
     setup: 'You’re the first one here. Create the admin account, then invite members one by one.',
   }[mode];
-  const google = googleButton(joining ? 'Sign up with Google' : 'Continue with Google', invite?.token);
+  const google = codeInput
+    ? state.config.googleEnabled && h('button', {
+      type: 'button', class: 'btn google-btn',
+      onclick: () => {
+        if (!codeInput.value.trim()) {
+          authError.textContent = 'Enter your invite code first.';
+          authError.classList.remove('hidden');
+          return codeInput.focus();
+        }
+        location.href = `/api/auth/google/start?code=${encodeURIComponent(codeInput.value.trim())}`;
+      },
+    }, h('span', { class: 'g-mark', 'aria-hidden': 'true', html: GOOGLE_MARK }), 'Sign up with Google')
+    : googleButton(joining ? 'Sign up with Google' : 'Continue with Google', invite?.token);
 
   app.append(h('div', { class: 'auth' },
     h('section', { class: 'auth-hero' },
@@ -284,21 +301,27 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
         h('h2', { class: 'serif' }, heading),
         h('p', { class: 'muted' }, intro),
         authError,
+        codeInput && field('Invite code', codeInput, 'From the person who invited you'),
         google,
         google && h('div', { class: 'or' }, joining ? 'or sign up with email' : 'or sign in with email'),
         form(fields, {
           submitLabel: joining ? 'Create my account' : 'Sign in',
           onSubmit: async (values) => {
             if (invite?.token) values.inviteToken = invite.token;
+            if (codeInput) values.inviteCode = codeInput.value;
             await api(joining ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: values });
-            history.replaceState(null, '', '/#/home');
+            // Keep the page they were headed to, except the one-time invite link.
+            if (location.hash.startsWith('#/join/')) history.replaceState(null, '', '/#/home');
             await start();
             if (joining) openProfileEditor(true);
           },
         }),
         mode === 'login' && h('p', { class: 'auth-switch muted small' },
-          'ACE is invite-only. If someone invited you, open the personal link they sent you.')))));
-  app.querySelector('input')?.focus();
+          'ACE is invite-only. If someone invited you, open the personal link they sent you',
+          state.config.codeEnabled ? [' or ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderAuth('code'); } }, 'join with an invite code'), '.'] : '.'),
+        mode === 'code' && h('p', { class: 'auth-switch muted small' },
+          'Already a member? ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderAuth('login'); } }, 'Sign in'))))));
+  (codeInput || app.querySelector('input'))?.focus();
 }
 
 // Opens a personal invite link (#/join/<token>).
@@ -1853,11 +1876,31 @@ async function loadInvites() {
     box.replaceChildren(h('p', { class: 'error-text' }, err.message));
     return;
   }
+  let groupCode = '';
+  try { ({ code: groupCode } = await api('/api/invite-code')); } catch { /* shown as off */ }
   const pending = invites.filter((i) => i.status === 'pending');
   const past = invites.filter((i) => i.status !== 'pending').slice(0, 10);
   const statusText = { joined: 'Joined', expired: 'Expired', cancelled: 'Cancelled' };
+  const codeCard = h('div', { class: 'card code-card' },
+    h('div', { class: 'grow' },
+      h('strong', {}, 'Group invite code'),
+      groupCode
+        ? h('div', { class: 'small muted' }, 'Anyone with this code can join. ', h('code', { class: 'invite-code-value' }, groupCode))
+        : h('div', { class: 'small muted' }, 'Off. People can only join with a personal invite link.')),
+    groupCode && h('button', { class: 'btn small', onclick: () => copyText(groupCode) }, 'Copy'),
+    h('button', { class: 'btn small', onclick: () => editInviteCode(groupCode) }, groupCode ? 'Change' : 'Turn on'),
+    groupCode && h('button', { class: 'btn small ghost danger', onclick: async () => {
+      if (!confirm('Turn off the group invite code? People who have it won’t be able to join with it anymore. Personal invite links keep working.')) return;
+      try {
+        await api('/api/invite-code', { method: 'PUT', body: { code: '' } });
+        state.config.codeEnabled = false;
+        toast('Invite code turned off');
+        loadInvites();
+      } catch (err) { toast(err.message, 'error'); }
+    } }, 'Turn off'));
   box.replaceChildren(...[
-    h('div', { class: 'section-head', style: 'margin-top:0' }, h('h2', {}, `Pending invites (${pending.length})`)),
+    codeCard,
+    h('div', { class: 'section-head' }, h('h2', {}, `Pending invites (${pending.length})`)),
     pending.length
       ? h('div', { class: 'card list-card' }, pending.map((i) => h('div', { class: 'invite-row' },
         h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, `${i.email} · expires ${shortDate(i.expiresAt)}`)),
@@ -1875,6 +1918,23 @@ async function loadInvites() {
         h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, i.email)),
         h('span', { class: `chip ${i.status === 'joined' ? 'launched' : ''}` }, statusText[i.status]))))),
   ].filter(Boolean));
+}
+
+function editInviteCode(current) {
+  const close = openModal(current ? 'Change the invite code' : 'Turn on an invite code', h('div', {},
+    h('p', { class: 'muted', style: 'margin-top:0' }, current
+      ? 'The old code stops working right away. Anyone who already joined stays a member.'
+      : 'Anyone with this code can join ACE, so only share it with people you’ve vetted.'),
+    form([field('Invite code', h('input', { type: 'text', id: 'new-invite-code', name: 'code', required: true, minlength: 4, maxlength: 60, value: current, autocapitalize: 'none' }), 'At least 4 characters. Not case-sensitive.')], {
+      submitLabel: 'Save code',
+      onSubmit: async (values) => {
+        await api('/api/invite-code', { method: 'PUT', body: values });
+        state.config.codeEnabled = true;
+        close();
+        toast('Invite code saved');
+        loadInvites();
+      },
+    })));
 }
 
 function openInviteForm() {

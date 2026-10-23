@@ -41,6 +41,10 @@ admins invite people one at a time from **Members → Invite someone**: each inv
 personal link that works once and expires after 14 days. Admins can cancel unused
 invites, remove members, create channels, schedule calls, and make other members admins.
 
+There is also an optional **group invite code** (Members → Group invite code) that anyone
+can use on the sign-in page under "join with an invite code". Admins can change it or turn
+it off at any time; it starts from the `INVITE_CODE` Cloudflare secret if one is set.
+
 ## Going live (Cloudflare, deployed by GitHub Actions)
 
 The D1 database `ai-entrepreneur-network` already exists in the Cloudflare

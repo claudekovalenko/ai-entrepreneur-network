@@ -94,6 +94,9 @@ textarea { resize: vertical; min-height: 80px; }
 .ace-spelled { font-size: 18px; color: var(--sidebar-text); letter-spacing: .02em; }
 .ace-spelled b { color: var(--gold); font-weight: 700; }
 .invites { margin-bottom: 24px; }
+.code-card { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 16px; }
+.code-card .grow { flex: 1; min-width: 200px; }
+.invite-code-value { font-weight: 700; color: var(--text); }
 .invite-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; flex-wrap: wrap; }
 .invite-row + .invite-row { border-top: 1px solid var(--border); }
 .invite-row .grow { flex: 1; min-width: 160px; }

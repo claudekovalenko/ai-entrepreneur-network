@@ -96,8 +96,8 @@ test('membership is invite-only: personal, single-use links from an admin', asyn
 
   const noInvite = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob' } });
   assert.equal(noInvite.status, 403);
-  const shared = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob', inviteCode: 'faith' } });
-  assert.equal(shared.status, 403, 'the old shared code no longer works');
+  const wrongCode = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob', inviteCode: 'nope' } });
+  assert.equal(wrongCode.status, 403);
 
   const bobToken = await invite('Bob', 'b@x.com');
   const preview = await client()(`/api/invites/${bobToken}`);
@@ -125,7 +125,25 @@ test('membership is invite-only: personal, single-use links from an admin', asyn
 
   const list = await alice('/api/invites');
   assert.deepEqual(list.data.invites.map((i) => i.status).sort(), ['cancelled', 'joined', 'joined']);
-  assert.equal((await alice('/api/config')).data.inviteRequired, undefined);
+});
+
+test('the group invite code still works, and admins can change or turn it off', async () => {
+  assert.equal((await client()('/api/config')).data.codeEnabled, true);
+  assert.equal((await alice('/api/invite-code')).data.code, 'faith', 'starts from the INVITE_CODE secret');
+  assert.equal((await bob('/api/invite-code')).status, 403);
+
+  const coded = await client()('/api/auth/register', { method: 'POST', body: { email: 'code1@x.com', password: 'password1', name: 'Coded One', inviteCode: ' Faith ' } });
+  assert.equal(coded.status, 200, 'codes are not case-sensitive');
+
+  assert.equal((await alice('/api/invite-code', { method: 'PUT', body: { code: 'ab' } })).status, 400);
+  await alice('/api/invite-code', { method: 'PUT', body: { code: 'kingdom-2026' } });
+  assert.equal((await client()('/api/auth/register', { method: 'POST', body: { email: 'code2@x.com', password: 'password1', name: 'Old Code', inviteCode: 'faith' } })).status, 403);
+  assert.equal((await client()('/api/auth/register', { method: 'POST', body: { email: 'code2@x.com', password: 'password1', name: 'New Code', inviteCode: 'kingdom-2026' } })).status, 200);
+
+  await alice('/api/invite-code', { method: 'PUT', body: { code: '' } });
+  assert.equal((await client()('/api/config')).data.codeEnabled, false);
+  assert.equal((await client()('/api/auth/register', { method: 'POST', body: { email: 'code3@x.com', password: 'password1', name: 'X', inviteCode: 'kingdom-2026' } })).status, 403);
+  await alice('/api/invite-code', { method: 'PUT', body: { code: 'faith' } });
 });
 
 test('login and unauthenticated access', async () => {
@@ -296,8 +314,9 @@ test("what's working: share cases and blueprints, mark helpful", async () => {
   assert.equal((await alice(`/api/playbooks/${id}`, { method: 'DELETE' })).status, 200, 'admins can remove posts');
 });
 
-async function googleSignIn({ invite = '', claims, state: badState }) {
-  const start = await fetch(`${base}/api/auth/google/start${invite ? `?invite=${invite}` : ''}`, { redirect: 'manual' });
+async function googleSignIn({ invite = '', code = '', claims, state: badState }) {
+  const query = code ? `?code=${code}` : invite ? `?invite=${invite}` : '';
+  const start = await fetch(`${base}/api/auth/google/start${query}`, { redirect: 'manual' });
   const location = new URL(start.headers.get('location'));
   const oauthCookie = start.headers.get('set-cookie').split(';')[0];
   googleClaims = { aud: 'test-client', email_verified: true, ...claims };
@@ -339,6 +358,10 @@ test('Google sign-in: invite required for new members, links existing emails', a
   const aliceMe = await (await fetch(`${base}/api/me`, { headers: { cookie: alice.cookie } })).json();
   assert.equal(aliceMe.user.id, 1);
   assert.equal(aliceMe.user.name, 'Alice');
+
+  // The group code works for Google sign-up too.
+  const viaCode = await googleSignIn({ claims: { sub: 'g-code', email: 'gcode@x.com', name: 'Code Person' }, code: 'faith' });
+  assert.equal(viaCode.location, '/');
 
   const wrongAudience = await googleSignIn({ invite: await invite('Y', 'y@x.com'), claims: { sub: 'g-y', email: 'y@x.com', aud: 'other-app' } });
   assert.equal(wrongAudience.location, '/?auth_error=google');

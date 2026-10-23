@@ -199,6 +199,7 @@ on('GET', '/api/config', async ({ db, env }) => ({
   googleEnabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
   // True only before anyone has signed up, so the first person can create the admin account.
   setupNeeded: !(await db.prepare('SELECT 1 FROM users LIMIT 1').first()),
+  codeEnabled: Boolean(await getInviteCode(db, env)),
   reactions: REACTIONS,
 }), { auth: false });
 
@@ -212,11 +213,24 @@ const claimInvite = (db, token) => (token ? db.prepare(`UPDATE invites SET used_
   WHERE token = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ${NOW} RETURNING *`)
   .bind(String(token)).first() : null);
 
-// Creates a member. Everyone except the very first person (the admin) needs a valid invite.
-async function createMember(db, { email, name, passwordHash }, inviteToken) {
+// The group invite code admins can share, turn off, or change. Until an admin changes it in
+// the app, it falls back to the INVITE_CODE secret. An empty value means it is turned off.
+async function getInviteCode(db, env) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = 'invite_code'").first();
+  return row ? row.value : (env.INVITE_CODE || '');
+}
+
+async function inviteCodeMatches(db, env, code) {
+  const current = await getInviteCode(db, env);
+  return Boolean(current) && typeof code === 'string' && code.trim().toLowerCase() === current.toLowerCase();
+}
+
+// Creates a member. Everyone except the very first person (the admin) needs a personal
+// invite link or the group invite code.
+async function createMember(db, { email, name, passwordHash }, { inviteToken, codeOk = false } = {}) {
   const { n } = await db.prepare('SELECT COUNT(*) AS n FROM users').first();
-  const invite = n === 0 ? null : await claimInvite(db, inviteToken);
-  if (n > 0 && !invite) throw new HttpError(403, INVALID_INVITE);
+  const invite = n === 0 || codeOk ? null : await claimInvite(db, inviteToken);
+  if (n > 0 && !codeOk && !invite) throw new HttpError(403, inviteToken ? INVALID_INVITE : 'That invite code is not valid. Check it with the person who invited you.');
   try {
     const user = await db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?) RETURNING *')
       .bind(email, passwordHash, name, n === 0 ? 'admin' : 'member').first();
@@ -260,6 +274,16 @@ on('POST', '/api/invites', async ({ db, user, body }) => {
   return { invite: serializeInvite(row) };
 }, { admin: true });
 
+on('GET', '/api/invite-code', async ({ db, env }) => ({ code: await getInviteCode(db, env) }), { admin: true });
+
+on('PUT', '/api/invite-code', async ({ db, body }) => {
+  const code = str(body.code, { max: 60, field: 'Invite code' });
+  if (code && code.length < 4) throw new HttpError(400, 'Use at least 4 characters so the code is hard to guess');
+  await db.prepare(`INSERT INTO settings (key, value) VALUES ('invite_code', ?)
+    ON CONFLICT (key) DO UPDATE SET value = excluded.value`).bind(code).run();
+  return { code };
+}, { admin: true });
+
 on('DELETE', '/api/invites/:token', async ({ db, params }) => {
   const { meta } = await db.prepare(`UPDATE invites SET revoked_at = ${NOW} WHERE token = ? AND used_at IS NULL AND revoked_at IS NULL`)
     .bind(params.token).run();
@@ -267,7 +291,7 @@ on('DELETE', '/api/invites/:token', async ({ db, params }) => {
   return { ok: true };
 }, { admin: true });
 
-on('POST', '/api/auth/register', async ({ db, body, emit, setCookie }) => {
+on('POST', '/api/auth/register', async ({ db, env, body, emit, setCookie }) => {
   const email = str(body.email, { max: 200, required: true, field: 'Email' }).toLowerCase();
   const name = str(body.name, { max: 80, required: true, field: 'Name' });
   const password = typeof body.password === 'string' ? body.password : '';
@@ -276,7 +300,8 @@ on('POST', '/api/auth/register', async ({ db, body, emit, setCookie }) => {
   if (await db.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) {
     throw new HttpError(409, 'An account with that email already exists');
   }
-  const user = await createMember(db, { email, name, passwordHash: await hashPassword(password) }, body.inviteToken);
+  const codeOk = !body.inviteToken && await inviteCodeMatches(db, env, body.inviteCode);
+  const user = await createMember(db, { email, name, passwordHash: await hashPassword(password) }, { inviteToken: body.inviteToken, codeOk });
   setCookie(await startSession(db, user.id));
   emit('user:updated', publicUser(user));
   return { user: privateUser(user) };
@@ -322,7 +347,9 @@ function decodeJwtPayload(jwt) {
 on('GET', '/api/auth/google/start', ({ env, url, setCookie }) => {
   requireGoogle(env);
   const state = randomToken();
-  const invite = url.searchParams.get('invite') ?? '';
+  // Either a personal invite token or the group code (stored as "code:<code>").
+  const code = url.searchParams.get('code');
+  const invite = code ? `code:${code}` : (url.searchParams.get('invite') ?? '');
   setCookie(`${OAUTH_COOKIE}=${state}.${encodeURIComponent(invite)}; Path=/api/auth/google; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
@@ -339,7 +366,9 @@ on('GET', '/api/auth/google/callback', async ({ db, env, url, request, setCookie
   requireGoogle(env);
   setCookie(`${OAUTH_COOKIE}=; Path=/api/auth/google; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   const fail = (reason) => redirect(`/?auth_error=${reason}`);
-  const [state, invite = ''] = (parseCookies(request.headers.get('Cookie') ?? '')[OAUTH_COOKIE] ?? '').split('.');
+  const rawOauth = parseCookies(request.headers.get('Cookie') ?? '')[OAUTH_COOKIE] ?? '';
+  const dot = rawOauth.indexOf('.');
+  const [state, invite] = dot < 0 ? [rawOauth, ''] : [rawOauth.slice(0, dot), rawOauth.slice(dot + 1)];
   const code = url.searchParams.get('code');
   if (!state || state !== url.searchParams.get('state') || !code) return fail('google');
 
@@ -376,7 +405,9 @@ on('GET', '/api/auth/google/callback', async ({ db, env, url, request, setCookie
     if (!user) {
       const name = str(claims.name || email.split('@')[0], { max: 80 }) || 'New member';
       try {
-        user = await createMember(db, { email, name, passwordHash: '' }, decodeURIComponent(invite));
+        const pending = decodeURIComponent(invite);
+        const codeOk = pending.startsWith('code:') && await inviteCodeMatches(db, env, pending.slice(5));
+        user = await createMember(db, { email, name, passwordHash: '' }, { inviteToken: codeOk ? null : pending, codeOk });
       } catch (err) {
         if (err instanceof HttpError) return fail(invite ? 'invite' : 'not-member');
         throw err;
