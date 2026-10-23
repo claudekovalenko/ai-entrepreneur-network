@@ -915,7 +915,17 @@ function renderVision() {
         h('dl', { class: 'values' }, VISION.values.map(([title, text]) => [h('dt', {}, title), h('dd', {}, text)]))),
       h('section', { class: 'card vision-win' },
         h('h3', {}, 'The win'),
-        h('p', {}, 'The win is not a bigger number. It is an evening home with your kids, a morning in the Word, a week spent serving, or a step into full-time ministry. When your business gives you time back, share it in #wins so we can celebrate what God is doing.')))),
+        h('p', {}, 'The win is not a bigger number. It is an evening home with your kids, a morning in the Word, a week spent serving, or a step into full-time ministry. When your business gives you time back, share it in #wins so we can celebrate what God is doing.')),
+      h('section', { class: 'vision-sending' },
+        h('div', { class: 'eyebrow' }, 'Where it all leads'),
+        h('h2', { class: 'serif' }, 'Enjoying the Lord, and seeing His kingdom built'),
+        h('p', {}, 'Freed-up time is for our families, and above all it is for enjoying the Lord, pursuing Him, and seeing God’s kingdom built and established.'),
+        h('ol', { class: 'reach', 'aria-label': 'Where we hope to see the kingdom established' },
+          h('li', {}, h('strong', {}, 'LA Metro'), h('span', {}, 'Where we live and work')),
+          h('li', {}, h('strong', {}, 'Across the U.S.'), h('span', {}, 'Wherever our members are')),
+          h('li', {}, h('strong', {}, 'The ends of the earth'), h('span', {}, 'Every nation'))),
+        h('p', {}, 'Full-time ministry is not a requirement for anyone in ACE. But ultimately we are all focused on making disciples: raising up people who love Jesus and want to pursue God.'),
+        h('div', { class: 'verse' }, '“You will be my witnesses in Jerusalem and in all Judea and Samaria, and to the end of the earth.” — Acts 1:8')))),
   ];
 }
 
