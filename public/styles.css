@@ -312,6 +312,28 @@ textarea { resize: vertical; min-height: 80px; }
 .auth-vision { font-size: 15px !important; color: #f4e6c6 !important; }
 @media (max-width: 600px) { .values { grid-template-columns: 1fr; gap: 2px; } .values dd { margin-bottom: 10px; } }
 
+/* ---------- phone navigation & chat list ---------- */
+.tabbar { display: none; }
+.back-btn { display: none; font-size: 30px; line-height: 1; text-decoration: none; color: var(--text); padding: 0 6px 4px 0; }
+.tabbar-item {
+  flex: 1; display: grid; justify-items: center; gap: 2px; padding: 4px 0; background: none; border: 0;
+  color: var(--muted); font-size: 11px; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.tabbar-item.on { color: var(--accent-strong); }
+.tabbar-icon { line-height: 0; position: relative; }
+.svg-icon { display: inline-flex; }
+.tabbar-icon .badge { position: absolute; top: -4px; left: 14px; font-size: 10px; padding: 0 5px; min-width: 16px; }
+.list-title { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+.list-title:first-child { margin-top: 0; }
+.list-card { padding: 4px 0; }
+.chat-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; text-decoration: none; color: inherit; }
+.chat-row + .chat-row { border-top: 1px solid var(--border); }
+.chat-row:hover { background: var(--surface-2); }
+.chat-row-text { flex: 1; min-width: 0; display: grid; }
+.chat-row-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-row.unread strong { color: var(--accent-strong); }
+.chat-icon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); font-weight: 700; flex: none; }
+
 /* ---------- chat ---------- */
 .chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .messages { flex: 1; overflow-y: auto; padding: 16px 24px 8px; }
@@ -393,12 +415,51 @@ textarea { resize: vertical; min-height: 80px; }
   .sidebar {
     position: fixed; inset: 0 auto 0 0; width: 280px; z-index: 40; transform: translateX(-100%); transition: transform .2s;
   }
-  .shell.nav-open .sidebar { transform: none; box-shadow: 0 0 0 100vmax rgba(0,0,0,.4); }
-  .menu-btn { display: block; }
-  .topbar { padding: 12px 16px; }
-  .page { padding: 16px; }
+  .shell.nav-open .sidebar { transform: none; }
+  /* Tapping the dimmed area hits the shell itself, which closes the menu. */
+  .shell.nav-open::after { content: ''; position: fixed; inset: 0; z-index: 35; background: rgba(10, 14, 24, .45); }
+  .topbar { padding: 10px 16px; min-height: 56px; padding-top: max(10px, env(safe-area-inset-top, 0px)); }
+  .topbar h1 { font-size: 17px; }
+  .topbar .btn { padding: 6px 10px; font-size: 13px; }
+  .page { padding: 16px; padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
   .messages { padding: 12px 16px 8px; }
-  .composer { padding: 0 16px 14px; }
+  .composer { padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
   .row { flex-direction: column; gap: 0; }
   .msg .actions { top: -16px; }
+  /* Phones zoom into inputs smaller than 16px, so keep form text at 16px. */
+  input, textarea, select { font-size: 16px !important; }
+
+  /* Bottom tab bar replaces the hamburger; it hides inside a conversation for more room. */
+  .tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 6px max(4px, env(safe-area-inset-left, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(4px, env(safe-area-inset-right, 0px));
+  }
+  .shell.in-room .tabbar { display: none; }
+  .menu-btn { display: none; }
+  .back-btn { display: block; }
+
+  /* Simpler home on phones: the next call comes first, and the Chat tab already lists channels. */
+  .home-channels, .stats, .hero-card > p { display: none; }
+  .topbar .btn.danger { display: none; }
+  .auth-card .modal-foot .btn { width: 100%; padding: 11px; }
+  .hero-card { padding: 20px; border-radius: 14px; }
+  .hero-card h1 { font-size: 24px; }
+  .hero-card p { font-size: 14.5px; }
+  .stats { grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
+  .stat { padding: 10px 12px; }
+  .stat b { font-size: 20px; }
+  .section-head { margin: 22px 0 10px; }
+  .grid { grid-template-columns: 1fr; gap: 12px; }
+
+  /* Modals become full-screen sheets. */
+  .modal-backdrop { padding: 0; display: block; background: var(--surface); }
+  .modal, .modal.wide { max-width: none; min-height: 100%; border-radius: 0; box-shadow: none; }
+  .modal-head { position: sticky; top: 0; background: var(--surface); padding: max(14px, env(safe-area-inset-top, 0px)) 16px 12px; z-index: 2; border-bottom: 1px solid var(--border); }
+  .modal-head h2 { font-size: 18px; }
+  .modal-body { padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+
+  .auth-hero { gap: 12px; padding-top: max(28px, env(safe-area-inset-top, 0px)); }
+  .auth-hero > p:not(.auth-vision), .auth-hero blockquote { display: none; }
+  .auth-panel { align-items: flex-start; padding-top: 24px; }
 }

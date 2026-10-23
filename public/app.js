@@ -202,6 +202,7 @@ function parseRoute() {
   if (parts[0] === 'suggestions') return { name: 'suggestions', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
+  if (parts[0] === 'chat') return { name: 'chat' };
   return { name: 'home' };
 }
 const go = (hash) => { location.hash = hash; };
@@ -339,8 +340,9 @@ function renderSidebar() {
       h('button', { onclick: logout }, 'Sign out')));
 }
 
-function topbar(title, sub, actions = []) {
+function topbar(title, sub, actions = [], { back } = {}) {
   return h('header', { class: 'topbar' },
+    back && h('a', { class: 'back-btn', href: back, 'aria-label': 'Back' }, '‹'),
     h('button', { class: 'menu-btn', 'aria-label': 'Open menu', onclick: () => document.querySelector('.shell').classList.toggle('nav-open') }, '☰'),
     h('div', { class: 'grow' }, h('h1', {}, title), sub && h('div', { class: 'sub' }, sub)),
     actions);
@@ -352,15 +354,74 @@ function renderShell() {
   const navOpen = prevShell?.classList.contains('nav-open');
   const main = renderMain();
   app.innerHTML = '';
-  app.append(h('div', { class: `shell ${navOpen ? 'nav-open' : ''}`, onclick: (e) => {
+  const inRoom = state.route.name === 'room';
+  app.append(h('div', { class: `shell ${navOpen ? 'nav-open' : ''} ${inRoom ? 'in-room' : ''}`, onclick: (e) => {
     if (e.target.classList.contains('shell')) e.currentTarget.classList.remove('nav-open');
-  } }, renderSidebar(), main));
+  } }, renderSidebar(), main, renderTabBar()));
   afterRender();
+}
+
+const totalUnread = () => [...state.channels, ...state.conversations].reduce((n, c) => n + (c.unread || 0), 0);
+
+const TAB_ICONS = {
+  home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/>',
+  chat: '<path d="M4 5.5h16v10H9l-5 4z"/>',
+  build: '<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
+  calls: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  more: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+};
+// SVG needs its own namespace, so the icon is parsed from markup rather than built with h().
+const tabIcon = (name) => h('span', {
+  class: 'svg-icon',
+  html: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${TAB_ICONS[name]}</svg>`,
+});
+
+// Bottom navigation shown only on phones (see styles.css).
+function renderTabBar() {
+  const r = state.route.name;
+  const unread = totalUnread();
+  const tab = (href, icon, label, active, badge) => h('a', { class: `tabbar-item ${active ? 'on' : ''}`, href, 'aria-current': active ? 'page' : null },
+    h('span', { class: 'tabbar-icon', 'aria-hidden': 'true' }, icon, badge ? h('span', { class: 'badge' }, badge > 99 ? '99+' : badge) : null),
+    h('span', {}, label));
+  return h('nav', { class: 'tabbar', 'aria-label': 'Main' },
+    tab('#/home', tabIcon('home'), 'Home', r === 'home'),
+    tab('#/chat', tabIcon('chat'), 'Chat', r === 'chat' || r === 'room', unread),
+    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions'].includes(r)),
+    tab('#/calls', tabIcon('calls'), 'Calls', r === 'calls'),
+    h('button', { class: 'tabbar-item', type: 'button', onclick: () => document.querySelector('.shell').classList.add('nav-open') },
+      h('span', { class: 'tabbar-icon', 'aria-hidden': 'true' }, tabIcon('more')), h('span', {}, 'More')));
+}
+
+// Phone chat list: every channel and private conversation in one place.
+function renderChatList() {
+  const row = (c, icon, label, sub) => h('a', { class: `chat-row ${c.unread ? 'unread' : ''}`, href: roomHash(c.room) },
+    icon, h('div', { class: 'chat-row-text' }, h('strong', {}, label), sub && h('span', { class: 'muted small' }, sub)),
+    c.unread ? h('span', { class: 'badge' }, c.unread) : null);
+  return [
+    topbar('Chat', 'Channels and private messages', [h('button', { class: 'btn small', onclick: openNewDm }, '+ Message')]),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner chat-list' },
+      h('h2', { class: 'list-title' }, 'Channels'),
+      h('div', { class: 'card list-card' }, state.channels.map((c) => row(c, h('span', { class: 'chat-icon' }, '#'), c.name, c.description))),
+      h('h2', { class: 'list-title' }, 'Private messages'),
+      state.conversations.length
+        ? h('div', { class: 'card list-card' }, state.conversations.map((c) => row(c, avatar(c.otherUserId),
+          userName(c.otherUserId), state.online.has(c.otherUserId) ? 'Online' : '')))
+        : h('div', { class: 'card empty' }, 'No private messages yet. Tap “+ Message” to start one.'))),
+  ];
+}
+
+function refreshTabBar() {
+  const old = document.querySelector('.tabbar');
+  if (old) old.replaceWith(renderTabBar());
 }
 
 function refreshSidebar() {
   const old = document.querySelector('.sidebar');
   if (old) old.replaceWith(renderSidebar());
+  refreshTabBar();
+  if (state.route.name === 'chat' && !document.querySelector('.modal-backdrop')) {
+    document.querySelector('.main')?.replaceWith(renderMain());
+  }
 }
 
 function renderMain() {
@@ -371,6 +432,7 @@ function renderMain() {
   else if (r.name === 'calls') main.append(...renderCalls());
   else if (r.name === 'suggestions') main.append(...renderSuggestions());
   else if (r.name === 'working') main.append(...renderWorking());
+  else if (r.name === 'chat') main.append(...renderChatList());
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
   else main.append(...renderHome());
@@ -419,8 +481,8 @@ function renderHome() {
       needHelp.length ? h('div', { class: 'grid' }, needHelp.map(projectCard))
         : h('div', { class: 'card empty' }, 'No open requests right now. Working on something? Share it and invite collaborators.'),
 
-      h('div', { class: 'section-head' }, h('h2', {}, 'Jump into a channel')),
-      h('div', { class: 'grid' }, state.channels.map((c) => h('a', { class: 'card', href: roomHash(c.room), style: 'text-decoration:none;color:inherit' },
+      h('div', { class: 'section-head home-channels' }, h('h2', {}, 'Jump into a channel')),
+      h('div', { class: 'grid home-channels' }, state.channels.map((c) => h('a', { class: 'card', href: roomHash(c.room), style: 'text-decoration:none;color:inherit' },
         h('h3', { style: 'font-size:15px' }, `# ${c.name}`, c.unread ? h('span', { class: 'badge', style: 'margin-left:8px' }, c.unread) : null),
         h('p', { class: 'muted small', style: 'margin:4px 0 0' }, c.description))))))
   ];
@@ -535,7 +597,7 @@ function renderRoom(room) {
   });
 
   return [
-    topbar(info.title, info.sub, actions),
+    topbar(info.title, info.sub, actions, { back: '#/chat' }),
     h('div', { class: 'chat' }, list,
       h('div', { class: 'composer' },
         h('div', { class: 'composer-box' }, input, h('button', { class: 'btn primary', onclick: send }, 'Send')),
