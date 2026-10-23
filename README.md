@@ -32,8 +32,10 @@ It runs entirely on Cloudflare's free Workers plan:
 - **A Durable Object** (`worker/hub.js`) holds everyone's live connection and
   pushes new messages, reactions, typing and online status instantly.
 
-The first person to register becomes the **admin**. Admins can create channels,
-schedule calls, and make other members admins from their profile.
+ACE is **invite-only**. The first person to sign up becomes the **admin**. After that,
+admins invite people one at a time from **Members → Invite someone**: each invite is a
+personal link that works once and expires after 14 days. Admins can cancel unused
+invites, remove members, create channels, schedule calls, and make other members admins.
 
 ## Going live (Cloudflare, deployed by GitHub Actions)
 
@@ -47,11 +49,10 @@ account and is referenced in `wrangler.jsonc`. The workflow in
 | ----------------------- | ---------------------------------------------------------------------------------- |
 | `CLOUDFLARE_API_TOKEN`  | Cloudflare → My Profile → API Tokens → Create Token → "Edit Cloudflare Workers"     |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare → Workers & Pages → Account ID in the right-hand panel                  |
-| `INVITE_CODE`           | Any code you choose; people enter it to join                                       |
 
 After adding them, open **Actions → Test and deploy → Run workflow**. The live
 link appears at the end of the deploy step (`https://ai-entrepreneur-network.<subdomain>.workers.dev`).
-Register first to become the admin, then share the link and invite code.
+Register first to become the admin, then invite members one by one (see below).
 
 ### Google sign-in (optional)
 
@@ -62,7 +63,7 @@ Register first to become the admin, then share the link and invite code.
    `https://ai-entrepreneur-network.faith-journey-funnel.workers.dev/api/auth/google/callback`.
 3. Add repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then re-run the
    workflow. The **Continue with Google** button appears once both are set. New members
-   still need the invite code; existing members can sign in with Google using the same email.
+   still need a personal invite link; existing members can sign in with Google using the same email.
 
 ## Development
 
@@ -72,7 +73,7 @@ npm run dev   # local Worker with a local D1 + Durable Object at http://localhos
 npm test      # starts a throwaway local Worker and runs the API/realtime tests
 ```
 
-Put local settings such as `INVITE_CODE=test` in a `.dev.vars` file.
+Put local settings (for example Google keys) in a `.dev.vars` file.
 
 - `worker/` — API routes, realtime hub, schema, password hashing, call scheduling
 - `public/` — the browser app (plain HTML/CSS/JS, no build step)

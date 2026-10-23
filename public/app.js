@@ -209,6 +209,8 @@ const go = (hash) => { location.hash = hash; };
 const roomHash = (room) => `#/${room.replace(':', '/')}`;
 
 window.addEventListener('hashchange', () => {
+  const joinToken = /^#\/join\/([\w-]+)/.exec(location.hash)?.[1];
+  if (!state.me && joinToken) return renderJoin(joinToken);
   if (!state.me) return;
   state.route = parseRoute();
   document.querySelector('.shell')?.classList.remove('nav-open');
@@ -220,78 +222,94 @@ window.addEventListener('hashchange', () => {
 const GOOGLE_MARK = '<svg viewBox="0 0 48 48" width="18" height="18"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
 
 const AUTH_ERRORS = {
-  invite: 'To join with Google, enter the invite code first, then choose Continue with Google.',
+  invite: 'That invite link is not valid. It may have expired or already been used. Ask the person who invited you for a new one.',
+  'not-member': 'We couldn’t find an ACE account for that Google account. ACE is invite-only, so use the personal invite link you were sent.',
   google: 'Google sign-in did not finish. Please try again.',
 };
 
-function renderAuth(mode = 'login', errorMessage = '') {
+// "ACE" with what it stands for directly underneath.
+function aceMark({ small = false } = {}) {
+  return h('div', { class: `ace-mark ${small ? 'small' : ''}` },
+    h('div', { class: 'ace-word serif' }, 'ACE'),
+    h('div', { class: 'ace-spelled' },
+      h('b', {}, 'A'), 'I ', h('b', {}, 'C'), 'hristian ', h('b', {}, 'E'), 'ntrepreneurs'));
+}
+
+function googleButton(label, invite = '') {
+  return state.config.googleEnabled && h('a', {
+    class: 'btn google-btn',
+    href: `/api/auth/google/start${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`,
+  }, h('span', { class: 'g-mark', 'aria-hidden': 'true', html: GOOGLE_MARK }), label);
+}
+
+// mode: 'login', 'join' (with a personal invite), or 'setup' (the very first admin).
+function renderAuth(mode = 'login', errorMessage = '', invite = null) {
   const [verse, ref] = verseOfDay();
-  const isRegister = mode === 'register';
   const app = document.getElementById('app');
   app.innerHTML = '';
-  const needsInvite = isRegister && state.config.inviteRequired;
-  // The invite code is shared by Google sign-up and the email form, so it sits above both.
-  const inviteInput = needsInvite && h('input', { type: 'text', id: 'invite-code', name: 'inviteCode', required: true, autocomplete: 'off' });
+  const joining = mode === 'join' || mode === 'setup';
   const authError = h('p', { class: `error-text ${errorMessage ? '' : 'hidden'}`, role: 'alert' }, errorMessage);
-  const googleButton = state.config.googleEnabled && h('button', {
-    type: 'button', class: 'btn google-btn',
-    onclick: () => {
-      const invite = inviteInput ? inviteInput.value.trim() : '';
-      if (inviteInput && !invite) {
-        authError.textContent = 'Enter the invite code first.';
-        authError.classList.remove('hidden');
-        inviteInput.focus();
-        return;
-      }
-      location.href = `/api/auth/google/start${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`;
-    },
-  }, h('span', { class: 'g-mark', 'aria-hidden': 'true', html: GOOGLE_MARK }), isRegister ? 'Sign up with Google' : 'Continue with Google');
-  const fields = isRegister
+  const fields = joining
     ? [
-        field('Full name', h('input', { type: 'text', name: 'name', required: true, autocomplete: 'name' })),
-        field('Email', h('input', { type: 'email', name: 'email', required: true, autocomplete: 'email' })),
-        field('Password', h('input', { type: 'password', name: 'password', required: true, minlength: 8, autocomplete: 'new-password' }), 'At least 8 characters'),
+        field('Full name', h('input', { type: 'text', name: 'name', required: true, autocomplete: 'name', value: invite?.name })),
+        field('Email', h('input', { type: 'email', name: 'email', required: true, autocomplete: 'email', value: invite?.email })),
+        field('Create a password', h('input', { type: 'password', name: 'password', required: true, minlength: 8, autocomplete: 'new-password' }), 'At least 8 characters'),
       ]
     : [
         field('Email', h('input', { type: 'email', name: 'email', required: true, autocomplete: 'email' })),
         field('Password', h('input', { type: 'password', name: 'password', required: true, autocomplete: 'current-password' })),
       ];
+  const heading = { login: 'Welcome back', join: `You’re invited${invite?.name ? `, ${invite.name.split(' ')[0]}` : ''}`, setup: 'Set up ACE' }[mode];
+  const intro = {
+    login: 'Sign in to continue the conversation.',
+    join: 'Someone in ACE invited you personally. Create your account to join.',
+    setup: 'You’re the first one here. Create the admin account, then invite members one by one.',
+  }[mode];
+  const google = googleButton(joining ? 'Sign up with Google' : 'Continue with Google', invite?.token);
 
   app.append(h('div', { class: 'auth' },
     h('section', { class: 'auth-hero' },
       h('div', { class: 'brand-mark' }, '✝'),
-      h('div', { class: 'auth-eyebrow' }, 'ACE · A community for Christian entrepreneurs'),
-      h('h1', { class: 'serif' }, 'AI Christian Entrepreneurs'),
-      h('p', {}, 'A community of Christian builders using AI to create ventures that give back time, not to hustle or chase wealth, but to have more of our lives for God, family, serving, and making disciples.'),
+      aceMark(),
+      h('p', {}, 'A private, invite-only fellowship of Christians using AI to build businesses that give back time, not to hustle or chase wealth, but to have more of our lives for God, family, serving, and making disciples.'),
       h('ul', {},
-        h('li', {}, 'Group channels for encouragement, prayer, ideas and content'),
+        h('li', {}, 'Channels for encouragement, prayer, ideas and content'),
         h('li', {}, 'Private messages with any member'),
-        h('li', {}, 'A project board to ask for help and collaborate'),
-        h('li', {}, 'Weekly and bi-weekly community calls')),
+        h('li', {}, 'Projects, working businesses and blueprints to learn from'),
+        h('li', {}, 'Weekly community calls')),
       h('blockquote', {}, `“${verse}” — ${ref}`),
       h('p', { class: 'auth-vision' }, h('strong', {}, 'Our vision: '), VISION.statement)),
     h('section', { class: 'auth-panel' },
       h('div', { class: 'auth-card' },
-        h('h2', { class: 'serif' }, isRegister ? 'Join the network' : 'Welcome back'),
-        h('p', { class: 'muted' }, isRegister ? 'Create your account to start connecting.' : 'Sign in to continue the conversation.'),
+        h('h2', { class: 'serif' }, heading),
+        h('p', { class: 'muted' }, intro),
         authError,
-        inviteInput && field('Invite code', inviteInput, 'Ask the person who invited you'),
-        googleButton,
-        googleButton && h('div', { class: 'or' }, isRegister ? 'or sign up with email' : 'or sign in with email'),
+        google,
+        google && h('div', { class: 'or' }, joining ? 'or sign up with email' : 'or sign in with email'),
         form(fields, {
-          submitLabel: isRegister ? 'Create account' : 'Sign in',
+          submitLabel: joining ? 'Create my account' : 'Sign in',
           onSubmit: async (values) => {
-            if (inviteInput) values.inviteCode = inviteInput.value;
-            await api(isRegister ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: values });
+            if (invite?.token) values.inviteToken = invite.token;
+            await api(joining ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: values });
+            history.replaceState(null, '', '/#/home');
             await start();
-            if (isRegister) openProfileEditor(true);
+            if (joining) openProfileEditor(true);
           },
         }),
-        h('p', { class: 'auth-switch muted' },
-          isRegister ? 'Already a member? ' : 'New here? ',
-          h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderAuth(isRegister ? 'login' : 'register'); } },
-            isRegister ? 'Sign in' : 'Create an account'))))));
-  app.querySelector('input').focus();
+        mode === 'login' && h('p', { class: 'auth-switch muted small' },
+          'ACE is invite-only. If someone invited you, open the personal link they sent you.')))));
+  app.querySelector('input')?.focus();
+}
+
+// Opens a personal invite link (#/join/<token>).
+async function renderJoin(token) {
+  try {
+    const { invite } = await api(`/api/invites/${encodeURIComponent(token)}`);
+    renderAuth('join', '', { ...invite, token });
+  } catch (err) {
+    history.replaceState(null, '', '/');
+    renderAuth('login', err.status === 404 ? AUTH_ERRORS.invite : err.message);
+  }
 }
 
 // ---------- shell ----------
@@ -309,7 +327,7 @@ function renderSidebar() {
   return h('aside', { class: 'sidebar' },
     h('div', { class: 'sidebar-head' },
       h('div', { class: 'brand-mark' }, '✝'),
-      h('div', {}, h('strong', {}, 'AI Christian Entrepreneurs'), h('span', {}, `${state.users.size} members · ${state.online.size} online`))),
+      h('div', {}, h('strong', {}, 'ACE'), h('span', {}, 'AI Christian Entrepreneurs'))),
     h('nav', { class: 'sidebar-scroll' },
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
@@ -448,7 +466,7 @@ const INSTALL_GUIDES = {
       `Tap the <strong>Share</strong> button ${ICON_SHARE} at the bottom of the screen (at the top on iPad). On newer iPhones, tap <strong>•••</strong> first, then <strong>Share</strong>.`,
       `Scroll down and tap <strong>Add to Home Screen</strong> ${ICON_PLUS}.`,
       'Tap <strong>Add</strong> in the top-right corner.',
-      'Open <strong>ACE Network</strong> from your Home Screen. It opens full-screen like an app.',
+      'Open <strong>ACE</strong> from your Home Screen. It opens full-screen like an app.',
     ],
   },
   'ios-chrome': {
@@ -457,7 +475,7 @@ const INSTALL_GUIDES = {
       `Tap the <strong>Share</strong> button ${ICON_SHARE} at the right end of the address bar.`,
       `Tap <strong>Add to Home Screen</strong> ${ICON_PLUS}. (If you don’t see it, open this page in Safari instead.)`,
       'Tap <strong>Add</strong>.',
-      'Open <strong>ACE Network</strong> from your Home Screen.',
+      'Open <strong>ACE</strong> from your Home Screen.',
     ],
   },
   'ios-inapp': {
@@ -474,7 +492,7 @@ const INSTALL_GUIDES = {
       `Tap the menu ${ICON_DOTS} in the top-right corner.`,
       'Tap <strong>Install app</strong> (on some phones it says <strong>Add to Home screen</strong>).',
       'Tap <strong>Install</strong> to confirm.',
-      'Open <strong>ACE Network</strong> from your home screen or app drawer.',
+      'Open <strong>ACE</strong> from your home screen or app drawer.',
     ],
   },
   'android-samsung': {
@@ -1677,10 +1695,96 @@ function renderMembers() {
   };
   search.addEventListener('input', () => { memberQuery = search.value; draw(); });
   draw();
+  const isAdmin = state.me.role === 'admin';
+  const invites = isAdmin && h('section', { class: 'invites', id: 'invites' }, h('p', { class: 'muted small' }, 'Loading invites…'));
+  if (isAdmin) afterRenderHooks.push(loadInvites);
   return [
-    topbar('Members', `${state.users.size} believers building together`),
-    h('div', { class: 'page' }, h('div', { class: 'page-inner' }, h('div', { style: 'margin-bottom:16px' }, search), grid)),
+    topbar('Members', `${state.users.size} members · invite-only`,
+      isAdmin ? [h('button', { class: 'btn primary', onclick: openInviteForm }, '+ Invite someone')] : []),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner' },
+      invites,
+      h('div', { style: 'margin-bottom:16px' }, search), grid)),
   ];
+}
+
+// ---------- invites (admins) ----------
+
+const inviteUrl = (token) => `${location.origin}/#/join/${token}`;
+
+async function copyText(text, input) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copied');
+  } catch {
+    input?.select();
+    toast('Press and hold to copy');
+  }
+}
+
+async function loadInvites() {
+  const box = document.getElementById('invites');
+  if (!box) return;
+  let invites;
+  try {
+    ({ invites } = await api('/api/invites'));
+  } catch (err) {
+    box.replaceChildren(h('p', { class: 'error-text' }, err.message));
+    return;
+  }
+  const pending = invites.filter((i) => i.status === 'pending');
+  const past = invites.filter((i) => i.status !== 'pending').slice(0, 10);
+  const statusText = { joined: 'Joined', expired: 'Expired', cancelled: 'Cancelled' };
+  box.replaceChildren(...[
+    h('div', { class: 'section-head', style: 'margin-top:0' }, h('h2', {}, `Pending invites (${pending.length})`)),
+    pending.length
+      ? h('div', { class: 'card list-card' }, pending.map((i) => h('div', { class: 'invite-row' },
+        h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, `${i.email} · expires ${shortDate(i.expiresAt)}`)),
+        h('button', { class: 'btn small', onclick: () => copyText(inviteUrl(i.token)) }, 'Copy link'),
+        h('button', { class: 'btn small ghost danger', onclick: async () => {
+          if (!confirm(`Cancel ${i.name}’s invite? The link will stop working.`)) return;
+          try {
+            await api(`/api/invites/${i.token}`, { method: 'DELETE' });
+            loadInvites();
+          } catch (err) { toast(err.message, 'error'); }
+        } }, 'Cancel'))))
+      : h('p', { class: 'muted small' }, 'No pending invites. Use “Invite someone” to send a personal link.'),
+    past.length > 0 && h('details', { class: 'past-invites' }, h('summary', { class: 'small muted' }, 'Past invites'),
+      h('div', { class: 'card list-card' }, past.map((i) => h('div', { class: 'invite-row' },
+        h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, i.email)),
+        h('span', { class: `chip ${i.status === 'joined' ? 'launched' : ''}` }, statusText[i.status]))))),
+  ].filter(Boolean));
+}
+
+function openInviteForm() {
+  const close = openModal('Invite someone to ACE', h('div', {},
+    h('p', { class: 'muted', style: 'margin-top:0' }, 'Each invite is a personal link for one person. It works once and expires in 14 days.'),
+    form([
+      field('Their name', h('input', { type: 'text', id: 'invite-name', name: 'name', required: true, maxlength: 80 })),
+      field('Their email', h('input', { type: 'email', id: 'invite-email', name: 'email', required: true, maxlength: 200 })),
+      field('Note to yourself (optional)', h('input', { type: 'text', id: 'invite-note', name: 'note', maxlength: 300, placeholder: 'e.g. Met at church, building an AI bookkeeping service' })),
+    ], {
+      submitLabel: 'Create invite link',
+      onSubmit: async (values) => {
+        const { invite } = await api('/api/invites', { method: 'POST', body: values });
+        close();
+        showInviteLink(invite);
+        loadInvites();
+      },
+    })));
+}
+
+function showInviteLink(invite) {
+  const url = inviteUrl(invite.token);
+  const first = invite.name.split(' ')[0];
+  const message = `Hi ${first}, I’d love to invite you to ACE (AI Christian Entrepreneurs), a small, private group of Christians using AI to build businesses that give back time for God, family, and ministry. Here’s your personal invite link (it works once and expires in 14 days):\n${url}`;
+  const linkInput = h('input', { type: 'text', id: 'invite-link', readonly: true, value: url });
+  const messageInput = h('textarea', { id: 'invite-message', rows: 6, readonly: true, value: message });
+  openModal(`Invite ready for ${first}`, h('div', { class: 'invite-share' },
+    h('p', { class: 'muted', style: 'margin-top:0' }, `Send this link to ${invite.name} by text or email. Only send it to them; anyone with the link can use it once.`),
+    field('Personal invite link', linkInput),
+    h('button', { class: 'btn primary', onclick: () => copyText(url, linkInput) }, 'Copy link'),
+    field('Or copy a ready-to-send message', messageInput),
+    h('button', { class: 'btn', onclick: () => copyText(message, messageInput) }, 'Copy message')));
 }
 
 function openMemberProfile(userId) {
@@ -1706,6 +1810,14 @@ function openMemberProfile(userId) {
           openMemberProfile(user.id);
         } catch (err) { toast(err.message, 'error'); }
       } }, u.role === 'admin' ? 'Remove admin' : 'Make admin'),
+      state.me.role === 'admin' && !isMe && h('button', { class: 'btn ghost danger', onclick: async () => {
+        if (!confirm(`Remove ${u.name} from ACE? They will be signed out and their account, messages, and posts will be deleted.`)) return;
+        try {
+          await api(`/api/users/${u.id}`, { method: 'DELETE' });
+          close();
+          toast(`${u.name} was removed`);
+        } catch (err) { toast(err.message, 'error'); }
+      } }, 'Remove from ACE'),
       h('span', { class: 'spacer' }),
       isMe ? h('button', { class: 'btn primary', onclick: () => { close(); openProfileEditor(); } }, 'Edit profile')
         : h('button', { class: 'btn primary', onclick: () => { close(); startDm(u.id); } }, 'Send message'))));
@@ -1831,6 +1943,14 @@ function connectSocket() {
     if (state.route.name === 'members' || state.route.name === 'home') renderShell(); else refreshSidebar();
   });
 
+  socket.on('user:removed', ({ id }) => {
+    if (id === state.me.id) return logout(true);
+    state.users.delete(id);
+    state.online.delete(id);
+    state.conversations = state.conversations.filter((c) => c.otherUserId !== id);
+    if (state.route.name === 'members' && !document.querySelector('.modal-backdrop')) renderShell(); else refreshSidebar();
+  });
+
   socket.on('user:updated', (u) => {
     state.users.set(u.id, u);
     if (u.id === state.me.id) state.me = { ...state.me, ...u };
@@ -1927,10 +2047,16 @@ document.addEventListener('click', (e) => {
   // Google sign-in returns here with ?auth_error=… when it could not finish.
   const authError = new URLSearchParams(location.search).get('auth_error');
   if (authError) history.replaceState(null, '', location.pathname + location.hash);
+  const joinToken = /^#\/join\/([\w-]+)/.exec(location.hash)?.[1];
   try {
     await start();
+    if (joinToken) {
+      toast('You’re already signed in to ACE.');
+      go('#/home');
+    }
   } catch (err) {
-    if (err.status === 401) renderAuth(authError === 'invite' ? 'register' : 'login', AUTH_ERRORS[authError] ?? '');
+    if (err.status === 401 && joinToken) renderJoin(joinToken);
+    else if (err.status === 401) renderAuth(state.config.setupNeeded ? 'setup' : 'login', AUTH_ERRORS[authError] ?? '');
     else document.getElementById('app').replaceChildren(h('div', { class: 'offline' },
       h('img', { src: '/icons/icon-192.png', alt: '', width: 72, height: 72 }),
       h('h2', { class: 'serif' }, navigator.onLine ? 'Could not load the network' : 'You’re offline'),

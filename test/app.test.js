@@ -67,20 +67,50 @@ const alice = client();
 const bob = client();
 const carol = client();
 
-test('registration requires the invite code and makes the first user admin', async () => {
-  const bad = await alice('/api/auth/register', { method: 'POST', body: { email: 'a@x.com', password: 'password1', name: 'Alice' } });
-  assert.equal(bad.status, 403);
+async function invite(name, email) {
+  const res = await alice('/api/invites', { method: 'POST', body: { name, email } });
+  assert.equal(res.status, 200);
+  return res.data.invite.token;
+}
 
-  const a = await alice('/api/auth/register', { method: 'POST', body: { email: 'a@x.com', password: 'password1', name: 'Alice', inviteCode: 'faith' } });
+test('membership is invite-only: personal, single-use links from an admin', async () => {
+  // The very first person needs no invite and becomes the admin.
+  const a = await alice('/api/auth/register', { method: 'POST', body: { email: 'a@x.com', password: 'password1', name: 'Alice' } });
   assert.equal(a.status, 200);
   assert.equal(a.data.user.role, 'admin');
 
-  const b = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob', inviteCode: 'faith' } });
-  assert.equal(b.data.user.role, 'member');
-  await carol('/api/auth/register', { method: 'POST', body: { email: 'c@x.com', password: 'password1', name: 'Carol', inviteCode: 'faith' } });
+  const noInvite = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob' } });
+  assert.equal(noInvite.status, 403);
+  const shared = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob', inviteCode: 'faith' } });
+  assert.equal(shared.status, 403, 'the old shared code no longer works');
 
-  const dup = await carol('/api/auth/register', { method: 'POST', body: { email: 'A@x.com', password: 'password1', name: 'X', inviteCode: 'faith' } });
+  const bobToken = await invite('Bob', 'b@x.com');
+  const preview = await client()(`/api/invites/${bobToken}`);
+  assert.equal(preview.data.invite.name, 'Bob');
+  const b = await bob('/api/auth/register', { method: 'POST', body: { email: 'b@x.com', password: 'password1', name: 'Bob', inviteToken: bobToken } });
+  assert.equal(b.data.user.role, 'member');
+
+  // A used link can't be reused by someone else.
+  const reuse = await client()('/api/auth/register', { method: 'POST', body: { email: 'z@x.com', password: 'password1', name: 'Z', inviteToken: bobToken } });
+  assert.equal(reuse.status, 403);
+  assert.equal((await client()(`/api/invites/${bobToken}`)).status, 404);
+
+  const carolToken = await invite('Carol', 'c@x.com');
+  // A failed sign-up (duplicate email) doesn't burn the invite.
+  const dup = await carol('/api/auth/register', { method: 'POST', body: { email: 'A@x.com', password: 'password1', name: 'X', inviteToken: carolToken } });
   assert.equal(dup.status, 409);
+  await carol('/api/auth/register', { method: 'POST', body: { email: 'c@x.com', password: 'password1', name: 'Carol', inviteToken: carolToken } });
+
+  // Admins can cancel unused invites; members can't create them.
+  const cancelled = await invite('Eve', 'eve@x.com');
+  assert.equal((await alice(`/api/invites/${cancelled}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await client()('/api/auth/register', { method: 'POST', body: { email: 'eve@x.com', password: 'password1', name: 'Eve', inviteToken: cancelled } })).status, 403);
+  assert.equal((await bob('/api/invites', { method: 'POST', body: { name: 'X', email: 'x@x.com' } })).status, 403);
+  assert.equal((await alice('/api/invites', { method: 'POST', body: { name: 'Bob', email: 'B@x.com' } })).status, 409, 'already a member');
+
+  const list = await alice('/api/invites');
+  assert.deepEqual(list.data.invites.map((i) => i.status).sort(), ['cancelled', 'joined', 'joined']);
+  assert.equal((await alice('/api/config')).data.inviteRequired, undefined);
 });
 
 test('login and unauthenticated access', async () => {
@@ -265,14 +295,17 @@ async function googleSignIn({ invite = '', claims, state: badState }) {
 test('Google sign-in: invite required for new members, links existing emails', async () => {
   assert.equal((await (await fetch(`${base}/api/config`)).json()).googleEnabled, true);
 
-  const tampered = await googleSignIn({ invite: 'faith', claims: { sub: 'g-x', email: 'x@x.com' }, state: 'forged' });
+  const tampered = await googleSignIn({ invite: 'whatever', claims: { sub: 'g-x', email: 'x@x.com' }, state: 'forged' });
   assert.equal(tampered.location, '/?auth_error=google');
   assert.equal(tampered.cookie, undefined);
 
   const noInvite = await googleSignIn({ claims: { sub: 'g-dana', email: 'dana@x.com', name: 'Dana Lee' } });
-  assert.equal(noInvite.location, '/?auth_error=invite');
+  assert.equal(noInvite.location, '/?auth_error=not-member');
+  const badInvite = await googleSignIn({ invite: 'not-a-real-token', claims: { sub: 'g-dana', email: 'dana@x.com' } });
+  assert.equal(badInvite.location, '/?auth_error=invite');
 
-  const dana = await googleSignIn({ invite: 'faith', claims: { sub: 'g-dana', email: 'Dana@x.com', name: 'Dana Lee' } });
+  const danaToken = await invite('Dana', 'dana@x.com');
+  const dana = await googleSignIn({ invite: danaToken, claims: { sub: 'g-dana', email: 'Dana@x.com', name: 'Dana Lee' } });
   assert.equal(dana.start.origin, 'https://accounts.google.com');
   assert.equal(dana.start.searchParams.get('client_id'), 'test-client');
   assert.equal(dana.start.searchParams.get('redirect_uri'), `${base}/api/auth/google/callback`);
@@ -292,13 +325,24 @@ test('Google sign-in: invite required for new members, links existing emails', a
   assert.equal(aliceMe.user.id, 1);
   assert.equal(aliceMe.user.name, 'Alice');
 
-  const wrongAudience = await googleSignIn({ invite: 'faith', claims: { sub: 'g-y', email: 'y@x.com', aud: 'other-app' } });
+  const wrongAudience = await googleSignIn({ invite: await invite('Y', 'y@x.com'), claims: { sub: 'g-y', email: 'y@x.com', aud: 'other-app' } });
   assert.equal(wrongAudience.location, '/?auth_error=google');
 
   // Google-only accounts have no password to guess.
   assert.equal((await fetch(`${base}/api/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'dana@x.com', password: '' }),
   })).status, 401);
+});
+
+test('admins can remove a member, which signs them out everywhere', async () => {
+  const token = await invite('Temp', 'temp@x.com');
+  const temp = client();
+  await temp('/api/auth/register', { method: 'POST', body: { email: 'temp@x.com', password: 'password1', name: 'Temp', inviteToken: token } });
+  const id = (await temp('/api/me')).data.user.id;
+  assert.equal((await bob(`/api/users/${id}`, { method: 'DELETE' })).status, 403);
+  assert.equal((await alice('/api/users/1', { method: 'DELETE' })).status, 400, 'admins cannot remove themselves');
+  assert.equal((await alice(`/api/users/${id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await temp('/api/me')).status, 401);
 });
 
 test('recurring calls keep local wall-clock time across DST', () => {

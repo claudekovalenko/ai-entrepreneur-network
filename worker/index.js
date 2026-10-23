@@ -194,27 +194,88 @@ function on(method, pattern, handler, { auth = true, admin = false } = {}) {
   routes.push({ method, re, handler, auth, admin });
 }
 
-on('GET', '/api/config', ({ env }) => ({
-  inviteRequired: Boolean(env.INVITE_CODE),
+on('GET', '/api/config', async ({ db, env }) => ({
   googleEnabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+  // True only before anyone has signed up, so the first person can create the admin account.
+  setupNeeded: !(await db.prepare('SELECT 1 FROM users LIMIT 1').first()),
   reactions: REACTIONS,
 }), { auth: false });
 
-on('POST', '/api/auth/register', async ({ db, env, body, emit, setCookie }) => {
+// ----- invite-only membership -----
+
+const INVITE_DAYS = 14;
+const INVALID_INVITE = 'This invite link is not valid. It may have expired or already been used. Ask the person who invited you for a new one.';
+
+// Reserves a single-use invite so the same link can't be used twice, even at the same moment.
+const claimInvite = (db, token) => (token ? db.prepare(`UPDATE invites SET used_at = ${NOW}
+  WHERE token = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ${NOW} RETURNING *`)
+  .bind(String(token)).first() : null);
+
+// Creates a member. Everyone except the very first person (the admin) needs a valid invite.
+async function createMember(db, { email, name, passwordHash }, inviteToken) {
+  const { n } = await db.prepare('SELECT COUNT(*) AS n FROM users').first();
+  const invite = n === 0 ? null : await claimInvite(db, inviteToken);
+  if (n > 0 && !invite) throw new HttpError(403, INVALID_INVITE);
+  try {
+    const user = await db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?) RETURNING *')
+      .bind(email, passwordHash, name, n === 0 ? 'admin' : 'member').first();
+    if (invite) await db.prepare('UPDATE invites SET used_by = ? WHERE token = ?').bind(user.id, invite.token).run();
+    return user;
+  } catch (err) {
+    if (invite) await db.prepare('UPDATE invites SET used_at = NULL WHERE token = ? AND used_by IS NULL').bind(invite.token).run();
+    throw err;
+  }
+}
+
+const inviteStatus = (i) => (i.used_by || i.used_at ? 'joined' : i.revoked_at ? 'cancelled' : i.expires_at <= new Date().toISOString() ? 'expired' : 'pending');
+const serializeInvite = (i) => ({
+  token: i.token, name: i.name, email: i.email, note: i.note, createdBy: i.created_by, createdAt: i.created_at,
+  expiresAt: i.expires_at, usedBy: i.used_by, usedAt: i.used_at, status: inviteStatus(i),
+});
+
+// Public: lets the invite page greet the person before they sign up.
+on('GET', '/api/invites/:token', async ({ db, params }) => {
+  const i = await db.prepare('SELECT * FROM invites WHERE token = ?').bind(params.token).first();
+  if (!i || inviteStatus(i) !== 'pending') throw new HttpError(404, INVALID_INVITE);
+  return { invite: { name: i.name, email: i.email, expiresAt: i.expires_at } };
+}, { auth: false });
+
+on('GET', '/api/invites', async ({ db }) => ({
+  invites: (await all(db.prepare('SELECT * FROM invites ORDER BY created_at DESC LIMIT 200'))).map(serializeInvite),
+}), { admin: true });
+
+on('POST', '/api/invites', async ({ db, user, body }) => {
+  const name = str(body.name, { max: 80, required: true, field: 'Name' });
+  const email = str(body.email, { max: 200, required: true, field: 'Email' }).toLowerCase();
+  const note = str(body.note, { max: 300, field: 'Note' });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, 'Enter a valid email');
+  if (await db.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) {
+    throw new HttpError(409, 'That person is already a member');
+  }
+  const token = randomToken().slice(0, 32);
+  const expires = new Date(Date.now() + INVITE_DAYS * 86_400_000).toISOString();
+  const row = await db.prepare('INSERT INTO invites (token, name, email, note, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *')
+    .bind(token, name, email, note, user.id, expires).first();
+  return { invite: serializeInvite(row) };
+}, { admin: true });
+
+on('DELETE', '/api/invites/:token', async ({ db, params }) => {
+  const { meta } = await db.prepare(`UPDATE invites SET revoked_at = ${NOW} WHERE token = ? AND used_at IS NULL AND revoked_at IS NULL`)
+    .bind(params.token).run();
+  if (!meta.changes) throw new HttpError(404, 'That invite is no longer pending');
+  return { ok: true };
+}, { admin: true });
+
+on('POST', '/api/auth/register', async ({ db, body, emit, setCookie }) => {
   const email = str(body.email, { max: 200, required: true, field: 'Email' }).toLowerCase();
   const name = str(body.name, { max: 80, required: true, field: 'Name' });
   const password = typeof body.password === 'string' ? body.password : '';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, 'Enter a valid email');
   if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters');
-  if (env.INVITE_CODE && body.inviteCode !== env.INVITE_CODE) throw new HttpError(403, 'That invite code is not valid');
   if (await db.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) {
     throw new HttpError(409, 'An account with that email already exists');
   }
-  const hash = await hashPassword(password);
-  // The very first member becomes the admin.
-  const user = await db.prepare(`INSERT INTO users (email, password_hash, name, role)
-    VALUES (?1, ?2, ?3, CASE WHEN EXISTS (SELECT 1 FROM users) THEN 'member' ELSE 'admin' END) RETURNING *`)
-    .bind(email, hash, name).first();
+  const user = await createMember(db, { email, name, passwordHash: await hashPassword(password) }, body.inviteToken);
   setCookie(await startSession(db, user.id));
   emit('user:updated', publicUser(user));
   return { user: privateUser(user) };
@@ -312,11 +373,13 @@ on('GET', '/api/auth/google/callback', async ({ db, env, url, request, setCookie
     // Google has verified the email, so an existing member with it is the same person.
     user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
     if (!user) {
-      if (env.INVITE_CODE && decodeURIComponent(invite) !== env.INVITE_CODE) return fail('invite');
       const name = str(claims.name || email.split('@')[0], { max: 80 }) || 'New member';
-      user = await db.prepare(`INSERT INTO users (email, password_hash, name, role)
-        VALUES (?1, '', ?2, CASE WHEN EXISTS (SELECT 1 FROM users) THEN 'member' ELSE 'admin' END) RETURNING *`)
-        .bind(email, name).first();
+      try {
+        user = await createMember(db, { email, name, passwordHash: '' }, decodeURIComponent(invite));
+      } catch (err) {
+        if (err instanceof HttpError) return fail(invite ? 'invite' : 'not-member');
+        throw err;
+      }
       emit('user:updated', publicUser(user));
     }
     await db.prepare("INSERT OR IGNORE INTO oauth_accounts (provider, subject, user_id) VALUES ('google', ?, ?)")
@@ -347,6 +410,16 @@ on('PATCH', '/api/me', async ({ db, user: me, body, emit }) => {
   emit('user:updated', publicUser(user));
   return { user: privateUser(user) };
 });
+
+on('DELETE', '/api/users/:id', async ({ db, env, user: me, params, emit }) => {
+  const id = intParam(params.id);
+  if (id === me.id) throw new HttpError(400, 'You cannot remove yourself');
+  const { meta } = await db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
+  if (!meta.changes) throw new HttpError(404, 'Member not found');
+  await hub(env).disconnectUser(id);
+  emit('user:removed', { id });
+  return { ok: true };
+}, { admin: true });
 
 on('PATCH', '/api/users/:id/role', async ({ db, user: me, params, body, emit }) => {
   const id = intParam(params.id);

@@ -16,6 +16,19 @@ const STATEMENTS = [
     role TEXT NOT NULL DEFAULT 'member',
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
+  // Personal, single-use invite links. Joining ACE requires one (except for the very first admin).
+  `CREATE TABLE IF NOT EXISTS invites (
+    token TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL COLLATE NOCASE,
+    note TEXT NOT NULL DEFAULT '',
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    used_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    revoked_at TEXT
+  )`,
   // Sign-in providers linked to a member, e.g. ('google', <Google account id>).
   `CREATE TABLE IF NOT EXISTS oauth_accounts (
     provider TEXT NOT NULL,

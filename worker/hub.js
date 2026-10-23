@@ -25,6 +25,17 @@ export class Hub extends DurableObject {
     this.send(userIds, event, data);
   }
 
+  // RPC: closes every connection of a removed member.
+  disconnectUser(userId) {
+    for (const ws of this.ctx.getWebSockets(`user:${userId}`)) {
+      try {
+        ws.close(4001, 'removed');
+      } catch {
+        // Already closed.
+      }
+    }
+  }
+
   // RPC: the ids of members with at least one open connection.
   onlineUserIds() {
     const ids = new Set();

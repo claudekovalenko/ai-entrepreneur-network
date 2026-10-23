@@ -37,10 +37,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          secrets: |
-            INVITE_CODE
-        env:
-          INVITE_CODE: ${{ secrets.INVITE_CODE }}
       # Google sign-in is optional: the button appears once both secrets exist.
       - name: Set Google sign-in keys
         if: env.GOOGLE_CLIENT_ID != '' && env.GOOGLE_CLIENT_SECRET != ''

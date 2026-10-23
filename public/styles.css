@@ -89,7 +89,19 @@ textarea { resize: vertical; min-height: 80px; }
   color: #fff; padding: 56px; display: flex; flex-direction: column; justify-content: center; gap: 22px;
 }
 .auth-hero h1 { font-size: 44px; }
-.auth-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin-bottom: -12px; }
+.ace-mark { display: grid; gap: 4px; }
+.ace-word { font-size: 64px; line-height: 1; letter-spacing: .04em; color: #fff; }
+.ace-spelled { font-size: 18px; color: var(--sidebar-text); letter-spacing: .02em; }
+.ace-spelled b { color: var(--gold); font-weight: 700; }
+.invites { margin-bottom: 24px; }
+.invite-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; flex-wrap: wrap; }
+.invite-row + .invite-row { border-top: 1px solid var(--border); }
+.invite-row .grow { flex: 1; min-width: 160px; }
+.past-invites { margin-top: 12px; }
+.past-invites summary { cursor: pointer; margin-bottom: 8px; }
+.invite-share { display: grid; gap: 10px; }
+.invite-share .btn { width: fit-content; }
+.invite-share label.field { margin: 6px 0 0; }
 .auth-hero p { color: var(--sidebar-text); max-width: 520px; font-size: 17px; margin: 0; }
 .auth-hero blockquote {
   margin: 12px 0 0; padding-left: 16px; border-left: 3px solid var(--gold);
@@ -445,6 +457,8 @@ textarea { resize: vertical; min-height: 80px; }
   .auth { grid-template-columns: 1fr; }
   .auth-hero { padding: 32px 20px; }
   .auth-hero h1 { font-size: 32px; }
+  .ace-word { font-size: 52px; }
+  .ace-spelled { font-size: 16px; }
   .auth-hero ul { display: none; }
   .shell { grid-template-columns: 1fr; }
   .sidebar {
