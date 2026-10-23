@@ -312,6 +312,14 @@ textarea { resize: vertical; min-height: 80px; }
 .auth-vision { font-size: 15px !important; color: #f4e6c6 !important; }
 @media (max-width: 600px) { .values { grid-template-columns: 1fr; gap: 2px; } .values dd { margin-bottom: 10px; } }
 
+/* ---------- installable app ---------- */
+.install-banner { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 14px; }
+.install-banner img { border-radius: 10px; flex: none; }
+.install-banner .grow { flex: 1; min-width: 0; }
+.offline { min-height: 100vh; min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 24px; }
+.offline img { border-radius: 16px; }
+.offline p { margin: 0 0 8px; }
+
 /* ---------- phone navigation & chat list ---------- */
 .tabbar { display: none; }
 .back-btn { display: none; font-size: 30px; line-height: 1; text-decoration: none; color: var(--text); padding: 0 6px 4px 0; }

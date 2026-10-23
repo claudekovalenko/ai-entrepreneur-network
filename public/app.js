@@ -317,6 +317,8 @@ function renderSidebar() {
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
       navItem({ href: '#/calls', icon: h('span', { class: 'icon' }, '☏'), label: 'Community calls', active: r.name === 'calls' }),
       navItem({ href: '#/members', icon: h('span', { class: 'icon' }, '☺'), label: 'Members', active: r.name === 'members' }),
+      canInstall() && h('button', { class: 'nav-item', type: 'button', onclick: installApp },
+        h('span', { class: 'icon' }, '⤓'), h('span', { class: 'label' }, 'Install the app')),
       h('div', { class: 'nav-section' },
         h('div', { class: 'nav-section-title' }, 'Channels',
           isAdmin && h('button', { title: 'New channel', onclick: openNewChannel }, '+')),
@@ -413,6 +415,70 @@ function renderChatList() {
 function refreshTabBar() {
   const old = document.querySelector('.tabbar');
   if (old) old.replaceWith(renderTabBar());
+  updateAppBadge();
+}
+
+// ---------- installable app (PWA) ----------
+
+let installPrompt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const canInstall = () => !isStandalone() && (installPrompt !== null || isIos());
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  if (state.me) renderShell();
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  if (state.me) renderShell();
+  toast('App installed');
+});
+
+async function installApp() {
+  if (installPrompt) {
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null;
+    renderShell();
+    return;
+  }
+  openModal('Add to your Home Screen', h('div', {},
+    h('p', { style: 'margin-top:0' }, 'Install the network like an app on your iPhone or iPad:'),
+    h('ol', { class: 'steps' },
+      h('li', {}, 'Open this site in ', h('strong', {}, 'Safari'), '.'),
+      h('li', {}, 'Tap the ', h('strong', {}, 'Share'), ' button (the square with an arrow).'),
+      h('li', {}, 'Choose ', h('strong', {}, 'Add to Home Screen'), ', then ', h('strong', {}, 'Add'), '.')),
+    h('p', { class: 'muted small' }, 'It opens full-screen from your Home Screen, just like an app.')));
+}
+
+let installBannerDismissed = false;
+try { installBannerDismissed = localStorage.getItem('install-banner-dismissed') === '1'; } catch { /* storage blocked */ }
+
+function installBanner() {
+  if (installBannerDismissed || !canInstall()) return null;
+  const banner = h('div', { class: 'card install-banner' },
+    h('img', { src: '/icons/icon-192.png', alt: '', width: 44, height: 44 }),
+    h('div', { class: 'grow' }, h('strong', {}, 'Get the app'), h('div', { class: 'muted small' }, 'Install the network on your phone for one-tap access.')),
+    h('button', { class: 'btn primary small', onclick: installApp }, 'Install'),
+    h('button', { class: 'modal-close', 'aria-label': 'Dismiss', onclick: () => {
+      installBannerDismissed = true;
+      try { localStorage.setItem('install-banner-dismissed', '1'); } catch { /* storage blocked */ }
+      banner.remove();
+    } }, '×'));
+  return banner;
+}
+
+// Shows the unread count on the installed app's icon where supported.
+function updateAppBadge() {
+  if (!('setAppBadge' in navigator)) return;
+  const n = state.me ? totalUnread() : 0;
+  (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
 function refreshSidebar() {
@@ -470,6 +536,7 @@ function renderHome() {
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).length), h('span', {}, 'projects shared')),
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).filter((p) => p.status === 'launched').length), h('span', {}, 'launched'))),
 
+      installBanner(),
       h('div', { class: 'section-head' }, h('h2', {}, 'Next community call'), h('a', { href: '#/calls', class: 'small' }, 'All calls →')),
       nextCall ? callCard(nextCall.call, { limit: 1 })
         : h('div', { class: 'card empty' }, state.me.role === 'admin'
@@ -1716,7 +1783,12 @@ document.addEventListener('click', (e) => {
 });
 
 (async function boot() {
-  state.config = await api('/api/config');
+  window.addEventListener('online', () => { if (!state.me) location.reload(); });
+  try {
+    state.config = await api('/api/config');
+  } catch {
+    state.config = { reactions: [] };
+  }
   // Google sign-in returns here with ?auth_error=… when it could not finish.
   const authError = new URLSearchParams(location.search).get('auth_error');
   if (authError) history.replaceState(null, '', location.pathname + location.hash);
@@ -1724,6 +1796,10 @@ document.addEventListener('click', (e) => {
     await start();
   } catch (err) {
     if (err.status === 401) renderAuth(authError === 'invite' ? 'register' : 'login', AUTH_ERRORS[authError] ?? '');
-    else document.getElementById('app').textContent = 'Could not load the network. Please refresh.';
+    else document.getElementById('app').replaceChildren(h('div', { class: 'offline' },
+      h('img', { src: '/icons/icon-192.png', alt: '', width: 72, height: 72 }),
+      h('h2', { class: 'serif' }, navigator.onLine ? 'Could not load the network' : 'You’re offline'),
+      h('p', { class: 'muted' }, navigator.onLine ? 'Something went wrong. Please try again.' : 'Reconnect to see new messages and updates.'),
+      h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Try again')));
   }
 })();
