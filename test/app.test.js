@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { upcomingOccurrences, zonedToUtc } from '../worker/schedule.js';
 
 // Runs the real Worker (D1 + Durable Objects) locally with a throwaway database.
@@ -21,12 +22,25 @@ const googleStub = http.createServer((req, res) => {
   res.end(JSON.stringify({ id_token: `${b64({ alg: 'none' })}.${b64(googleClaims)}.sig` }));
 });
 
+// Stands in for a browser push service and records what it receives.
+const pushes = [];
+const pushStub = http.createServer((req, res) => {
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => {
+    pushes.push({ path: req.url, headers: req.headers, body: Buffer.concat(chunks) });
+    res.statusCode = req.url.includes('gone') ? 410 : 201;
+    res.end();
+  });
+});
+
 before(async () => {
   await new Promise((resolve) => googleStub.listen(0, resolve));
+  await new Promise((resolve) => pushStub.listen(0, resolve));
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aen-test-'));
   wrangler = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--persist-to', stateDir,
     '--var', 'INVITE_CODE:faith', '--var', 'GOOGLE_CLIENT_ID:test-client', '--var', 'GOOGLE_CLIENT_SECRET:shh',
-    '--var', `GOOGLE_TOKEN_URL:http://127.0.0.1:${googleStub.address().port}/token`,
+    '--var', `GOOGLE_TOKEN_URL:http://127.0.0.1:${googleStub.address().port}/token`, '--var', 'ALLOW_HTTP_PUSH:1', '--var', 'REMINDER_CHECK_MS:1500',
     '--show-interactive-dev-session=false'], { stdio: 'ignore', detached: true });
   for (let i = 0; i < 120; i++) {
     try {
@@ -39,6 +53,7 @@ before(async () => {
 
 after(() => {
   googleStub.close();
+  pushStub.close();
   process.kill(-wrangler.pid);
   fs.rmSync(stateDir, { recursive: true, force: true });
 });
@@ -343,6 +358,142 @@ test('admins can remove a member, which signs them out everywhere', async () => 
   assert.equal((await alice('/api/users/1', { method: 'DELETE' })).status, 400, 'admins cannot remove themselves');
   assert.equal((await alice(`/api/users/${id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await temp('/api/me')).status, 401);
+});
+
+// A fake browser subscription whose private key lets the test decrypt pushes (RFC 8291).
+function fakeDevice(path) {
+  const ecdh = crypto.createECDH('prime256v1');
+  ecdh.generateKeys();
+  const auth = crypto.randomBytes(16);
+  const subscription = {
+    endpoint: `http://127.0.0.1:${pushStub.address().port}${path}`,
+    keys: { p256dh: ecdh.getPublicKey().toString('base64url'), auth: auth.toString('base64url') },
+  };
+  const decrypt = (body) => {
+    const salt = body.subarray(0, 16);
+    const idLen = body[20];
+    const asPublic = body.subarray(21, 21 + idLen);
+    const ciphertext = body.subarray(21 + idLen);
+    const shared = ecdh.computeSecret(asPublic);
+    const info = Buffer.concat([Buffer.from('WebPush: info\0'), ecdh.getPublicKey(), asPublic]);
+    const ikm = Buffer.from(crypto.hkdfSync('sha256', shared, auth, info, 32));
+    const cek = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16));
+    const nonce = Buffer.from(crypto.hkdfSync('sha256', ikm, salt, Buffer.from('Content-Encoding: nonce\0'), 12));
+    const decipher = crypto.createDecipheriv('aes-128-gcm', cek, nonce);
+    decipher.setAuthTag(ciphertext.subarray(-16));
+    const plain = Buffer.concat([decipher.update(ciphertext.subarray(0, -16)), decipher.final()]);
+    assert.equal(plain.at(-1), 2, 'last-record delimiter');
+    return JSON.parse(plain.subarray(0, -1).toString());
+  };
+  return { subscription, decrypt };
+}
+
+function verifyVapid(headers, endpoint) {
+  const [, jwt, key] = /^vapid t=([^,]+), k=(.+)$/.exec(headers.authorization);
+  const [h, c, sig] = jwt.split('.');
+  const raw = Buffer.from(key, 'base64url');
+  const publicKey = crypto.createPublicKey({ format: 'jwk', key: {
+    kty: 'EC', crv: 'P-256', x: raw.subarray(1, 33).toString('base64url'), y: raw.subarray(33, 65).toString('base64url'),
+  } });
+  assert.ok(crypto.verify('sha256', Buffer.from(`${h}.${c}`), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url')));
+  const claims = JSON.parse(Buffer.from(c, 'base64url'));
+  assert.equal(claims.aud, new URL(endpoint).origin);
+  assert.match(claims.sub, /^mailto:/);
+}
+
+const waitForPush = async (path, timeout = 5000) => {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    const hit = pushes.find((p) => p.path === path);
+    if (hit) return hit;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+};
+
+test('push notifications: private messages and @mentions reach closed apps, encrypted', async () => {
+  const key = await alice('/api/push/key');
+  assert.match(key.data.publicKey, /^[\w-]{80,}$/);
+  assert.equal((await alice('/api/push/subscribe', { method: 'POST', body: { endpoint: 'ftp://x', keys: { p256dh: 'a', auth: 'b' } } })).status, 400);
+
+  const device = fakeDevice('/push/alice');
+  assert.equal((await alice('/api/push/subscribe', { method: 'POST', body: device.subscription })).status, 200);
+
+  // A private message from Bob.
+  const { data } = await bob('/api/conversations', { method: 'POST', body: { userId: 1 } });
+  await bob(`/api/rooms/${data.conversation.room}/messages`, { method: 'POST', body: { body: 'Can we pray before the launch?' } });
+  const dm = await waitForPush('/push/alice');
+  assert.ok(dm, 'push delivered');
+  assert.equal(dm.headers['content-encoding'], 'aes128gcm');
+  verifyVapid(dm.headers, device.subscription.endpoint);
+  const dmPayload = device.decrypt(dm.body);
+  assert.equal(dmPayload.title, 'Bob');
+  assert.equal(dmPayload.body, 'Can we pray before the launch?');
+  assert.equal(dmPayload.url, `/#/${data.conversation.room.replace(':', '/')}`);
+
+  // Channel messages only notify people who are @mentioned.
+  pushes.length = 0;
+  const general = (await bob('/api/bootstrap')).data.channels.find((c) => c.name === 'general');
+  await bob(`/api/rooms/${general.room}/messages`, { method: 'POST', body: { body: 'No mention here' } });
+  await bob(`/api/rooms/${general.room}/messages`, { method: 'POST', body: { body: 'Thoughts on this, @alice?' } });
+  const mention = await waitForPush('/push/alice');
+  assert.equal(device.decrypt(mention.body).title, 'Bob in #general');
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(pushes.length, 1, 'only the mention notified');
+
+  // No push while the app is open on screen.
+  pushes.length = 0;
+  const ws = new WebSocket(`ws://localhost:${port}/api/ws`, { headers: { cookie: alice.cookie() } });
+  await new Promise((resolve) => { ws.onopen = resolve; });
+  ws.send(JSON.stringify({ type: 'active', active: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  await bob(`/api/rooms/${data.conversation.room}/messages`, { method: 'POST', body: { body: 'You there?' } });
+  assert.equal(await waitForPush('/push/alice', 1000), null, 'skipped while active');
+  ws.send(JSON.stringify({ type: 'active', active: false }));
+  await new Promise((r) => setTimeout(r, 200));
+  await bob(`/api/rooms/${data.conversation.room}/messages`, { method: 'POST', body: { body: 'Ping' } });
+  assert.ok(await waitForPush('/push/alice'), 'sent once the app is in the background');
+  ws.close();
+
+  // Devices the push service says are gone get cleaned up; unsubscribed devices get nothing.
+  pushes.length = 0;
+  const gone = fakeDevice('/push/gone');
+  await carol('/api/push/subscribe', { method: 'POST', body: gone.subscription });
+  const carolDm = (await bob('/api/conversations', { method: 'POST', body: { userId: 3 } })).data.conversation.room;
+  await bob(`/api/rooms/${carolDm}/messages`, { method: 'POST', body: { body: 'hi' } });
+  assert.ok(await waitForPush('/push/gone'));
+  pushes.length = 0;
+  await bob(`/api/rooms/${carolDm}/messages`, { method: 'POST', body: { body: 'hi again' } });
+  assert.equal(await waitForPush('/push/gone', 1000), null, 'expired device removed');
+
+  await alice('/api/push/unsubscribe', { method: 'POST', body: { endpoint: device.subscription.endpoint } });
+  pushes.length = 0;
+  await bob(`/api/rooms/${data.conversation.room}/messages`, { method: 'POST', body: { body: 'after unsubscribe' } });
+  assert.equal(await waitForPush('/push/alice', 1000), null);
+});
+
+test('push notifications: a reminder before each community call', async () => {
+  const device = fakeDevice('/push/bob-calls');
+  await bob('/api/push/subscribe', { method: 'POST', body: device.subscription });
+  const start = new Date(Date.now() + 10 * 60_000);
+  const call = await alice('/api/calls', {
+    method: 'POST',
+    body: { title: 'Prayer Call', frequency: 'once', startDate: start.toISOString().slice(0, 10), startTime: start.toISOString().slice(11, 16), timezone: 'UTC', durationMin: 30 },
+  });
+  assert.equal(call.status, 200);
+  // Any live connection starts the reminder check.
+  const ws = new WebSocket(`ws://localhost:${port}/api/ws`, { headers: { cookie: carol.cookie() } });
+  await new Promise((resolve) => { ws.onopen = resolve; });
+  const reminder = await waitForPush('/push/bob-calls', 8000);
+  ws.close();
+  assert.ok(reminder, 'reminder sent');
+  const payload = device.decrypt(reminder.body);
+  assert.match(payload.title, /^Prayer Call starts in (9|10) min$/);
+  assert.equal(payload.url, '/#/calls');
+  // Only once per call.
+  const count = () => pushes.filter((p) => p.path === '/push/bob-calls').length;
+  await new Promise((r) => setTimeout(r, 3500));
+  assert.equal(count(), 1);
 });
 
 test('recurring calls keep local wall-clock time across DST', () => {

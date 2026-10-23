@@ -1,6 +1,7 @@
 import { ensureSchema } from './schema.js';
 import { hashPassword, randomToken, verifyPassword } from './password.js';
 import { FREQUENCIES, isValidTimeZone, upcomingOccurrences } from './schedule.js';
+import { getVapidKeys, sendPush } from './push.js';
 
 export { Hub } from './hub.js';
 
@@ -518,7 +519,61 @@ on('GET', '/api/rooms/:room/messages', async ({ db, user, params, url }) => {
   return { messages: await serializeMessages(db, rows.reverse()), hasMore: rows.length === 50 };
 });
 
-on('POST', '/api/rooms/:room/messages', async ({ db, user, params, body, emit }) => {
+// ----- push notifications -----
+
+on('GET', '/api/push/key', async ({ db }) => ({ publicKey: (await getVapidKeys(db)).publicKey }));
+
+on('POST', '/api/push/subscribe', async ({ db, env, user, body }) => {
+  const endpoint = str(body.endpoint, { max: 1000, required: true, field: 'Endpoint' });
+  const p256dh = str(body.keys?.p256dh, { max: 200, required: true, field: 'Key' });
+  const auth = str(body.keys?.auth, { max: 100, required: true, field: 'Key' });
+  const allowed = endpoint.startsWith('https://') || (env.ALLOW_HTTP_PUSH && endpoint.startsWith('http://'));
+  if (!allowed) throw new HttpError(400, 'Unsupported push endpoint');
+  await db.prepare(`INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth) VALUES (?, ?, ?, ?)
+    ON CONFLICT (endpoint) DO UPDATE SET user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`)
+    .bind(endpoint, user.id, p256dh, auth).run();
+  return { ok: true };
+});
+
+on('POST', '/api/push/unsubscribe', async ({ db, user, body }) => {
+  await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').bind(String(body.endpoint ?? ''), user.id).run();
+  return { ok: true };
+});
+
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Members @mentioned in a channel message (by first or full name), or everyone for an admin's @everyone.
+async function mentionedUserIds(db, text, sender) {
+  if (!text.includes('@')) return [];
+  const users = await all(db.prepare('SELECT id, name FROM users WHERE id != ?').bind(sender.id));
+  if (sender.role === 'admin' && /(^|\s)@(everyone|channel)\b/i.test(text)) return users.map((u) => u.id);
+  return users.filter((u) => {
+    const names = [u.name, u.name.split(/\s+/)[0]].map((n) => escapeRegex(n.trim())).filter(Boolean);
+    return names.some((n) => new RegExp(`(^|[^\\w])@${n}(?![\\w])`, 'i').test(text));
+  }).map((u) => u.id);
+}
+
+// Notifies the people a new message is for, skipping anyone looking at the app right now.
+async function notifyMessage(env, db, target, message, sender) {
+  const recipients = target.kind === 'dm'
+    ? target.audience.filter((id) => id !== sender.id)
+    : await mentionedUserIds(db, message.body, sender);
+  if (!recipients.length) return;
+  const active = new Set(await hub(env).activeUserIds());
+  const away = recipients.filter((id) => !active.has(id));
+  if (!away.length) return;
+  const channel = target.kind === 'channel'
+    ? (await db.prepare('SELECT name FROM channels WHERE id = ?').bind(target.id).first())?.name
+    : null;
+  await sendPush(env, away, {
+    title: channel ? `${sender.name} in #${channel}` : sender.name,
+    body: message.body.length > 180 ? `${message.body.slice(0, 180)}…` : message.body,
+    url: `/#/${target.room.replace(':', '/')}`,
+    tag: target.room,
+  });
+}
+
+on('POST', '/api/rooms/:room/messages', async ({ db, env, user, params, body, emit, waitUntil }) => {
   const target = await resolveRoom(db, params.room, user);
   const text = str(body.body, { max: MAX_MESSAGE, required: true, field: 'Message' });
   const row = await db.prepare(`INSERT INTO messages (${target.column}, user_id, body) VALUES (?, ?, ?) RETURNING *`)
@@ -532,6 +587,7 @@ on('POST', '/api/rooms/:room/messages', async ({ db, user, params, body, emit })
     }
   }
   emit('message:new', message, target.audience);
+  waitUntil(notifyMessage(env, db, target, message, user));
   return { message };
 });
 
@@ -1027,6 +1083,7 @@ async function handleApi(request, env, ctx, url) {
   const emit = (event, data, userIds = null) => ctx.waitUntil(hub(env).broadcast(event, data, userIds));
   const result = await route.handler({
     request, env, url, db, user, params, body, emit, setCookie: (c) => cookies.push(c),
+    waitUntil: (promise) => ctx.waitUntil(promise.catch((err) => console.error(err))),
   });
   const response = result instanceof Response ? result : Response.json(result);
   for (const c of cookies) response.headers.append('Set-Cookie', c);

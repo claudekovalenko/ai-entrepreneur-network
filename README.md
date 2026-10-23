@@ -17,6 +17,10 @@ It works like a small, focused Slack:
   meeting link. Members see it in their own timezone, RSVP, and get a **Join call**
   button (highlighted while the call is live). Times stay correct across daylight
   saving changes.
+- **Push notifications** — private messages, @mentions (admins can use `@everyone`),
+  and a reminder 15 minutes before each call, delivered even when the app is closed. Works
+  on Android and computers; on iPhone/iPad once ACE is added to the Home Screen. No setup
+  needed: the server creates its own notification (VAPID) keys on first use.
 - **Member directory** — profiles with headline, skills/tools and ministry focus,
   searchable, with online status.
 - **Home dashboard** — mission statement, verse of the day, the next call and

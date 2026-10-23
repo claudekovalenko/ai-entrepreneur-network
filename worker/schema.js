@@ -29,6 +29,24 @@ const STATEMENTS = [
     used_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     revoked_at TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+  // One row per device a member turned notifications on for.
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  // Call reminders already sent, so each occurrence is announced once.
+  `CREATE TABLE IF NOT EXISTS call_reminders (
+    call_id INTEGER NOT NULL REFERENCES calls(id) ON DELETE CASCADE,
+    occurrence TEXT NOT NULL,
+    PRIMARY KEY (call_id, occurrence)
+  )`,
   // Sign-in providers linked to a member, e.g. ('google', <Google account id>).
   `CREATE TABLE IF NOT EXISTS oauth_accounts (
     provider TEXT NOT NULL,

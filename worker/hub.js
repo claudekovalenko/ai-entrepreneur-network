@@ -1,4 +1,35 @@
 import { DurableObject } from 'cloudflare:workers';
+import { ensureSchema } from './schema.js';
+import { sendPush } from './push.js';
+import { upcomingOccurrences } from './schedule.js';
+
+const REMINDER_LEAD_MS = 15 * 60_000;
+const ALARM_EVERY_MS = 5 * 60_000;
+
+// Sends one reminder per call occurrence, about 15 minutes before it starts.
+async function sendCallReminders(env) {
+  const db = env.DB;
+  await ensureSchema(db);
+  const now = Date.now();
+  const { results: calls } = await db.prepare('SELECT * FROM calls').all();
+  for (const call of calls) {
+    const next = upcomingOccurrences(call, now, 1)[0];
+    if (!next) continue;
+    const startsIn = Date.parse(next.startsAt) - now;
+    if (startsIn < 0 || startsIn > REMINDER_LEAD_MS) continue;
+    const { meta } = await db.prepare('INSERT OR IGNORE INTO call_reminders (call_id, occurrence) VALUES (?, ?)')
+      .bind(call.id, next.occurrence).run();
+    if (!meta.changes) continue;
+    const { results: people } = await db.prepare('SELECT DISTINCT user_id FROM push_subscriptions').all();
+    const minutes = Math.max(1, Math.round(startsIn / 60_000));
+    await sendPush(env, people.map((p) => p.user_id), {
+      title: `${call.title} starts in ${minutes} min`,
+      body: call.link ? 'Tap to open the call details and join.' : 'Tap to see the call details.',
+      url: '/#/calls',
+      tag: `call:${call.id}:${next.occurrence}`,
+    });
+  }
+}
 
 // A single Durable Object holds every member's WebSocket and fans out realtime
 // events. It uses the hibernation API, so idle connections cost nothing.
@@ -15,7 +46,9 @@ export class Hub extends DurableObject {
     const { 0: client, 1: server } = new WebSocketPair();
     const wasOnline = this.socketsFor(userId).length > 0;
     this.ctx.acceptWebSocket(server, [`user:${userId}`]);
-    server.serializeAttachment({ userId });
+    server.serializeAttachment({ userId, active: true });
+    // Keep the call-reminder check running once anyone has connected.
+    if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + this.checkEvery());
     if (!wasOnline) this.send(null, 'presence', { userId, online: true });
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -36,6 +69,29 @@ export class Hub extends DurableObject {
     }
   }
 
+  // RPC: members with the app open and visible right now (they don't need a push).
+  activeUserIds() {
+    const ids = new Set();
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment();
+      if (att?.userId && att.active && ws.readyState === WebSocket.OPEN) ids.add(att.userId);
+    }
+    return [...ids];
+  }
+
+  // How often to look for upcoming calls (tests shorten it).
+  checkEvery() {
+    return Number(this.env.REMINDER_CHECK_MS) || ALARM_EVERY_MS;
+  }
+
+  async alarm() {
+    try {
+      await sendCallReminders(this.env);
+    } finally {
+      await this.ctx.storage.setAlarm(Date.now() + this.checkEvery());
+    }
+  }
+
   // RPC: the ids of members with at least one open connection.
   onlineUserIds() {
     const ids = new Set();
@@ -51,6 +107,11 @@ export class Hub extends DurableObject {
     try {
       parsed = JSON.parse(message);
     } catch {
+      return;
+    }
+    // The app reports when it goes to the background or comes back.
+    if (parsed?.type === 'active') {
+      ws.serializeAttachment({ ...ws.deserializeAttachment(), active: parsed.active === true });
       return;
     }
     if (parsed?.type !== 'typing') return;

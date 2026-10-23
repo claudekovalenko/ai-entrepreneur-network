@@ -336,6 +336,9 @@ function renderSidebar() {
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
       navItem({ href: '#/calls', icon: h('span', { class: 'icon' }, '☏'), label: 'Community calls', active: r.name === 'calls' }),
       navItem({ href: '#/members', icon: h('span', { class: 'icon' }, '☺'), label: 'Members', active: r.name === 'members' }),
+      h('button', { class: 'nav-item', type: 'button', onclick: openNotificationSettings },
+        h('span', { class: 'icon' }, '🔔'), h('span', { class: 'label' }, 'Notifications'),
+        pushState === 'on' ? h('span', { class: 'small', style: 'opacity:.7' }, 'On') : null),
       canInstall() && h('button', { class: 'nav-item', type: 'button', onclick: installApp },
         h('span', { class: 'icon' }, '⤓'), h('span', { class: 'label' }, 'Install the app')),
       h('div', { class: 'nav-section' },
@@ -632,6 +635,135 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
 
+// ---------- push notifications ----------
+
+// 'on' | 'off' | 'denied' | 'needs-install' (iPhone in Safari) | 'unsupported'
+let pushState = 'off';
+const isIosDevice = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function computePushState(subscription) {
+  if (isIosDevice() && !isStandalone()) return 'needs-install';
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  return subscription && Notification.permission === 'granted' ? 'on' : 'off';
+}
+
+async function currentSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+const urlB64ToBytes = (s) => {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '=')), (c) => c.charCodeAt(0));
+};
+
+// Re-registers this device after sign-in so the server knows who it belongs to.
+async function syncPushSubscription() {
+  try {
+    const sub = await currentSubscription();
+    pushState = computePushState(sub);
+    if (pushState === 'on') await api('/api/push/subscribe', { method: 'POST', body: sub.toJSON() });
+  } catch {
+    pushState = computePushState(null);
+  }
+  refreshSidebar();
+}
+
+async function enablePush() {
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    pushState = computePushState(null);
+    throw new Error(permission === 'denied'
+      ? 'Notifications are blocked for this site. Turn them on in your browser or phone settings, then try again.'
+      : 'Notifications were not turned on.');
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const { publicKey } = await api('/api/push/key');
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToBytes(publicKey) });
+  await api('/api/push/subscribe', { method: 'POST', body: sub.toJSON() });
+  pushState = 'on';
+}
+
+async function disablePush({ quiet = false } = {}) {
+  const sub = await currentSubscription();
+  if (sub) {
+    await api('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+    await sub.unsubscribe().catch(() => {});
+  }
+  pushState = computePushState(null);
+  if (!quiet) toast('Notifications turned off on this device');
+}
+
+function openNotificationSettings() {
+  document.querySelector('.shell')?.classList.remove('nav-open');
+  const what = h('ul', { class: 'notify-list' },
+    h('li', {}, 'Private messages sent to you'),
+    h('li', {}, 'When someone @mentions you in a channel'),
+    h('li', {}, 'A reminder 15 minutes before each community call'));
+  const body = () => {
+    if (pushState === 'needs-install') {
+      return [
+        h('p', {}, 'On iPhone and iPad, notifications only work once ACE is on your Home Screen. That is an Apple rule.'),
+        h('ol', { class: 'steps' },
+          h('li', {}, 'Add ACE to your Home Screen (the “Get the app” steps).'),
+          h('li', {}, 'Open ACE from the Home Screen icon.'),
+          h('li', {}, 'Come back here and tap ', h('strong', {}, 'Turn on notifications'), '.')),
+        h('button', { class: 'btn primary', onclick: () => { closeModal(); installApp(); } }, 'Show me how to install'),
+      ];
+    }
+    if (pushState === 'unsupported') return [h('p', {}, 'This browser can’t show notifications. Try Chrome, Edge, Firefox, or Safari, or install ACE on your phone.')];
+    if (pushState === 'denied') {
+      return [h('p', {}, 'Notifications are blocked for ACE on this device. To allow them, open your browser or phone ',
+        h('strong', {}, 'Settings → Notifications'), ', find ACE (or this website), and turn them on. Then come back here.')];
+    }
+    return [
+      h('p', { style: 'margin-top:0' }, pushState === 'on' ? 'Notifications are on for this device. You’ll get:' : 'Get a notification on this device, even when ACE is closed, for:'),
+      what,
+      pushState === 'on'
+        ? h('button', { class: 'btn', onclick: async () => { await disablePush(); closeModal(); refreshSidebar(); } }, 'Turn off on this device')
+        : h('button', { class: 'btn primary', onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          try {
+            await enablePush();
+            closeModal();
+            refreshSidebar();
+            renderShell();
+            toast('Notifications are on');
+          } catch (err) {
+            toast(err.message, 'error');
+            e.currentTarget.disabled = false;
+          }
+        } }, 'Turn on notifications'),
+      h('p', { class: 'muted small' }, 'You won’t get notifications while you have ACE open on screen. Turn them on separately on each phone or computer you use.'),
+    ];
+  };
+  openModal('Notifications', h('div', { class: 'notify-settings' }, ...body()));
+}
+
+// A small prompt on the home page until notifications are on (or dismissed).
+let notifyCardDismissed = false;
+try { notifyCardDismissed = localStorage.getItem('notify-card-dismissed') === '1'; } catch { /* storage blocked */ }
+
+function notifyCard() {
+  if (notifyCardDismissed || !['off', 'needs-install'].includes(pushState)) return null;
+  const card = h('div', { class: 'card notify-card' },
+    h('span', { class: 'notify-bell', 'aria-hidden': 'true' }, '🔔'),
+    h('div', { class: 'grow' }, h('strong', {}, 'Don’t miss a message'),
+      h('div', { class: 'muted small' }, pushState === 'needs-install'
+        ? 'Install ACE on your Home Screen to get notifications for messages and call reminders.'
+        : 'Get notified about private messages, @mentions, and call reminders.')),
+    h('button', { class: 'btn primary small', onclick: openNotificationSettings }, pushState === 'needs-install' ? 'How' : 'Turn on'),
+    h('button', { class: 'modal-close', 'aria-label': 'Dismiss', onclick: () => {
+      notifyCardDismissed = true;
+      try { localStorage.setItem('notify-card-dismissed', '1'); } catch { /* storage blocked */ }
+      card.remove();
+    } }, '×'));
+  return card;
+}
+
 function refreshSidebar() {
   const old = document.querySelector('.sidebar');
   if (old) old.replaceWith(renderSidebar());
@@ -690,6 +822,7 @@ function renderHome() {
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).length), h('span', {}, 'projects shared')),
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).filter((p) => p.status === 'launched').length), h('span', {}, 'launched'))),
 
+      notifyCard(),
       h('div', { class: 'section-head' }, h('h2', {}, 'Next community call'), h('a', { href: '#/calls', class: 'small' }, 'All calls →')),
       nextCall ? callCard(nextCall.call, { limit: 1 })
         : h('div', { class: 'card empty' }, state.me.role === 'admin'
@@ -973,7 +1106,6 @@ function addMessage(m) {
     }
   }
   refreshSidebar();
-  if (m.userId !== state.me.id && (document.hidden || state.route.room !== m.room)) notify(m);
 }
 
 function updateMessage(m) {
@@ -1013,16 +1145,6 @@ function clearTyping(room, userId) {
   clearTimeout(map.get(userId));
   map.delete(userId);
   renderTyping(room);
-}
-
-function notify(m) {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const info = roomInfo(m.room);
-  const isDm = m.room.startsWith('d:');
-  const mentioned = m.body.toLowerCase().includes(`@${state.me.name.split(' ')[0].toLowerCase()}`);
-  if (!isDm && !mentioned) return;
-  const n = new Notification(isDm ? userName(m.userId) : `${userName(m.userId)} in ${info?.title ?? 'a channel'}`, { body: m.body.slice(0, 140) });
-  n.onclick = () => { window.focus(); go(roomHash(m.room)); };
 }
 
 function openNewChannel() {
@@ -1866,6 +1988,11 @@ class Realtime {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type, room }));
   }
 
+  // Lets the server skip push notifications while the app is open on screen.
+  sendActive() {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: 'active', active: !document.hidden }));
+  }
+
   open() {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws`);
     let opened = false;
@@ -1874,6 +2001,7 @@ class Realtime {
       opened = true;
       this.retry = 0;
       this.ping = setInterval(() => ws.send('ping'), 30_000);
+      this.sendActive();
       this.fire('connect');
     };
     ws.onmessage = (e) => {
@@ -2004,6 +2132,8 @@ function applyBootstrap(data) {
 // ---------- lifecycle ----------
 
 async function logout(silent = false) {
+  // Stop this device getting the signed-out member's notifications.
+  if (!silent) await disablePush({ quiet: true }).catch(() => {});
   if (!silent) await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
   state.socket?.disconnect();
   state.socket = null;
@@ -2023,12 +2153,11 @@ async function start() {
   state.route = parseRoute();
   renderShell();
   connectSocket();
-  if ('Notification' in window && Notification.permission === 'default') {
-    document.addEventListener('click', () => Notification.requestPermission(), { once: true });
-  }
+  syncPushSubscription();
 }
 
 document.addEventListener('visibilitychange', () => {
+  state.socket?.sendActive();
   if (!document.hidden && state.route.name === 'room') renderMessages(state.route.room);
 });
 document.addEventListener('click', (e) => {
