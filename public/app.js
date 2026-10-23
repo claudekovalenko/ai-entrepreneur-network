@@ -422,8 +422,7 @@ function refreshTabBar() {
 
 let installPrompt = null;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const canInstall = () => !isStandalone() && (installPrompt !== null || isIos());
+const canInstall = () => !isStandalone();
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -436,38 +435,171 @@ window.addEventListener('appinstalled', () => {
   toast('App installed');
 });
 
-async function installApp() {
-  if (installPrompt) {
-    installPrompt.prompt();
-    await installPrompt.userChoice.catch(() => {});
-    installPrompt = null;
-    renderShell();
-    return;
+const ICON_SHARE = '<svg class="inline-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Share"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5v10h14V11h-1"/></svg>';
+const ICON_PLUS = '<svg class="inline-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-label="Add"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg>';
+const ICON_DOTS = '<b class="kbd" aria-label="menu">⋮</b>';
+
+// Step-by-step install instructions for each device and browser.
+const INSTALL_GUIDES = {
+  'ios-safari': {
+    label: 'iPhone · Safari',
+    steps: [
+      `Tap the <strong>Share</strong> button ${ICON_SHARE} at the bottom of the screen (at the top on iPad). On newer iPhones, tap <strong>•••</strong> first, then <strong>Share</strong>.`,
+      `Scroll down and tap <strong>Add to Home Screen</strong> ${ICON_PLUS}.`,
+      'Tap <strong>Add</strong> in the top-right corner.',
+      'Open <strong>AI Network</strong> from your Home Screen. It opens full-screen like an app.',
+    ],
+  },
+  'ios-chrome': {
+    label: 'iPhone · Chrome',
+    steps: [
+      `Tap the <strong>Share</strong> button ${ICON_SHARE} at the right end of the address bar.`,
+      `Tap <strong>Add to Home Screen</strong> ${ICON_PLUS}. (If you don’t see it, open this page in Safari instead.)`,
+      'Tap <strong>Add</strong>.',
+      'Open <strong>AI Network</strong> from your Home Screen.',
+    ],
+  },
+  'ios-inapp': {
+    label: 'Opened from another app',
+    steps: [
+      `You opened this inside another app (like Facebook, Instagram, or Messages). Tap <strong>•••</strong> or ${ICON_SHARE} and choose <strong>Open in Safari</strong> (or <strong>Open in browser</strong>).`,
+      `In Safari, tap <strong>Share</strong> ${ICON_SHARE}, then <strong>Add to Home Screen</strong>.`,
+      'Tap <strong>Add</strong>.',
+    ],
+  },
+  'android-chrome': {
+    label: 'Android · Chrome',
+    steps: [
+      `Tap the menu ${ICON_DOTS} in the top-right corner.`,
+      'Tap <strong>Install app</strong> (on some phones it says <strong>Add to Home screen</strong>).',
+      'Tap <strong>Install</strong> to confirm.',
+      'Open <strong>AI Network</strong> from your home screen or app drawer.',
+    ],
+  },
+  'android-samsung': {
+    label: 'Android · Samsung Internet',
+    steps: [
+      'Tap the menu <b class="kbd">≡</b> at the bottom right.',
+      'Tap <strong>Add page to</strong>, then <strong>Home screen</strong>.',
+      'Tap <strong>Add</strong>.',
+    ],
+  },
+  'android-firefox': {
+    label: 'Android · Firefox',
+    steps: [
+      `Tap the menu ${ICON_DOTS}.`,
+      'Tap <strong>Install</strong> (or <strong>Add to Home screen</strong>).',
+      'Tap <strong>Add</strong> to confirm.',
+    ],
+  },
+  'desktop-chrome': {
+    label: 'Computer · Chrome or Edge',
+    steps: [
+      'Look for the <strong>install icon</strong> (a small screen with a down arrow) at the right end of the address bar, and click it.',
+      `No icon? Open the menu ${ICON_DOTS} and choose <strong>Cast, save, and share → Install page as app</strong> (Chrome) or <strong>Apps → Install this site as an app</strong> (Edge).`,
+      'Click <strong>Install</strong>. The network opens in its own window and appears with your other apps.',
+    ],
+  },
+  'mac-safari': {
+    label: 'Mac · Safari',
+    steps: [
+      'In the menu bar, click <strong>File → Add to Dock</strong>.',
+      'Click <strong>Add</strong>. The network appears in your Dock like an app.',
+    ],
+  },
+  'desktop-firefox': {
+    label: 'Computer · Firefox',
+    steps: [
+      'Firefox on a computer can’t install web apps.',
+      'Open this page in <strong>Chrome</strong>, <strong>Edge</strong>, or <strong>Safari</strong> and follow the steps for that browser.',
+      'Or bookmark this page so it’s one click away.',
+    ],
+  },
+};
+const GUIDE_TABS = [['ios-safari', 'iPhone'], ['android-chrome', 'Android'], ['desktop-chrome', 'Computer']];
+
+function detectInstallGuide() {
+  const ua = navigator.userAgent;
+  const ios = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios) {
+    if (/FBAN|FBAV|Instagram|Line\/|Twitter|LinkedInApp|GSA\//.test(ua)) return 'ios-inapp';
+    if (/CriOS|EdgiOS/.test(ua)) return 'ios-chrome';
+    return 'ios-safari';
   }
-  openModal('Add to your Home Screen', h('div', {},
-    h('p', { style: 'margin-top:0' }, 'Install the network like an app on your iPhone or iPad:'),
-    h('ol', { class: 'steps' },
-      h('li', {}, 'Open this site in ', h('strong', {}, 'Safari'), '.'),
-      h('li', {}, 'Tap the ', h('strong', {}, 'Share'), ' button (the square with an arrow).'),
-      h('li', {}, 'Choose ', h('strong', {}, 'Add to Home Screen'), ', then ', h('strong', {}, 'Add'), '.')),
-    h('p', { class: 'muted small' }, 'It opens full-screen from your Home Screen, just like an app.')));
+  if (/android/i.test(ua)) {
+    if (/SamsungBrowser/.test(ua)) return 'android-samsung';
+    if (/Firefox/.test(ua)) return 'android-firefox';
+    return 'android-chrome';
+  }
+  if (/Firefox/.test(ua)) return 'desktop-firefox';
+  if (/Safari/.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)) return 'mac-safari';
+  return 'desktop-chrome';
 }
 
-let installBannerDismissed = false;
-try { installBannerDismissed = localStorage.getItem('install-banner-dismissed') === '1'; } catch { /* storage blocked */ }
+const GUIDE_SNOOZE_DAYS = 14;
+let guideOpen = false;
+let guideChoice = null;
+let guideSnoozedUntil = 0;
+try { guideSnoozedUntil = Number(localStorage.getItem('install-guide-snoozed-until')) || 0; } catch { /* storage blocked */ }
 
-function installBanner() {
-  if (installBannerDismissed || !canInstall()) return null;
-  const banner = h('div', { class: 'card install-banner' },
-    h('img', { src: '/icons/icon-192.png', alt: '', width: 44, height: 44 }),
-    h('div', { class: 'grow' }, h('strong', {}, 'Get the app'), h('div', { class: 'muted small' }, 'Install the network on your phone for one-tap access.')),
-    h('button', { class: 'btn primary small', onclick: installApp }, 'Install'),
-    h('button', { class: 'modal-close', 'aria-label': 'Dismiss', onclick: () => {
-      installBannerDismissed = true;
-      try { localStorage.setItem('install-banner-dismissed', '1'); } catch { /* storage blocked */ }
-      banner.remove();
-    } }, '×'));
-  return banner;
+// Opens the install guide from the menu, even if it was dismissed.
+function installApp() {
+  guideOpen = true;
+  guideSnoozedUntil = 0;
+  document.querySelector('.shell')?.classList.remove('nav-open');
+  if (state.route.name === 'room') go('#/home'); else renderShell();
+  requestAnimationFrame(() => document.querySelector('.install-guide')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+}
+
+async function promptInstall() {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => {});
+  installPrompt = null;
+  renderShell();
+}
+
+// A collapsible "Get the app" dropdown shown to members who haven't installed the app.
+function installGuide() {
+  if (!canInstall() || Date.now() < guideSnoozedUntil) return null;
+  const detected = detectInstallGuide();
+  const key = guideChoice ?? detected;
+  const guide = INSTALL_GUIDES[key];
+  const rerender = () => document.querySelector('.install-guide')?.replaceWith(installGuide() ?? '');
+  const tabKey = (k) => (k.startsWith('ios') ? 'ios-safari' : k.startsWith('android') ? 'android-chrome' : 'desktop-chrome');
+  const variants = Object.keys(INSTALL_GUIDES).filter((k) => tabKey(k) === tabKey(key) && k !== key && k !== 'ios-inapp');
+
+  return h('section', { class: `install-guide ${guideOpen ? 'open' : ''}` },
+    h('div', { class: 'install-guide-bar' },
+      h('button', {
+        class: 'install-guide-toggle', type: 'button', 'aria-expanded': String(guideOpen), 'aria-controls': 'install-guide-body',
+        onclick: () => { guideOpen = !guideOpen; rerender(); },
+      },
+        h('img', { src: '/icons/icon-192.png', alt: '', width: 28, height: 28 }),
+        h('span', { class: 'grow' }, h('strong', {}, 'Get the app'), h('span', { class: 'muted' }, guideOpen ? ' · how to install' : ' · tap to see how')),
+        h('span', { class: 'chevron', 'aria-hidden': 'true' }, '▾')),
+      h('button', {
+        class: 'install-guide-close', type: 'button', 'aria-label': `Hide for ${GUIDE_SNOOZE_DAYS} days`, title: `Hide for ${GUIDE_SNOOZE_DAYS} days`,
+        onclick: () => {
+          guideOpen = false;
+          guideSnoozedUntil = Date.now() + GUIDE_SNOOZE_DAYS * 86_400_000;
+          try { localStorage.setItem('install-guide-snoozed-until', String(guideSnoozedUntil)); } catch { /* storage blocked */ }
+          rerender();
+          toast('Hidden for two weeks. You can install anytime from the menu.');
+        },
+      }, '×')),
+    guideOpen && h('div', { class: 'install-guide-body', id: 'install-guide-body' },
+      h('p', { class: 'small muted', style: 'margin:0' }, 'Installing puts the network on your home screen with its own icon. It opens full-screen, like any other app.'),
+      installPrompt && h('button', { class: 'btn primary install-now', type: 'button', onclick: promptInstall }, 'Install now (one tap)'),
+      h('div', { class: 'tags', role: 'tablist', 'aria-label': 'Choose your device' }, GUIDE_TABS.map(([k, label]) => h('button', {
+        type: 'button', role: 'tab', 'aria-selected': String(tabKey(key) === k),
+        class: `btn small ${tabKey(key) === k ? 'on' : ''}`,
+        onclick: () => { guideChoice = k === tabKey(detected) ? detected : k; rerender(); },
+      }, label))),
+      h('div', { class: 'guide-label small' }, guide.label, key === detected && h('span', { class: 'muted' }, ' · detected')),
+      h('ol', { class: 'guide-steps' }, guide.steps.map((step) => h('li', { html: step }))),
+      variants.length > 0 && h('div', { class: 'small muted' }, 'Using a different browser? ',
+        variants.map((k, i) => [i ? ' · ' : '', h('a', { href: '#', onclick: (e) => { e.preventDefault(); guideChoice = k; rerender(); } }, INSTALL_GUIDES[k].label.split(' · ')[1])]))));
 }
 
 // Shows the unread count on the installed app's icon where supported.
@@ -502,6 +634,9 @@ function renderMain() {
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
   else main.append(...renderHome());
+  // The install dropdown sits under the page title everywhere except inside a conversation.
+  const guide = r.name !== 'room' && installGuide();
+  if (guide) main.children[0].after(guide);
   return main;
 }
 
@@ -536,7 +671,6 @@ function renderHome() {
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).length), h('span', {}, 'projects shared')),
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).filter((p) => p.status === 'launched').length), h('span', {}, 'launched'))),
 
-      installBanner(),
       h('div', { class: 'section-head' }, h('h2', {}, 'Next community call'), h('a', { href: '#/calls', class: 'small' }, 'All calls →')),
       nextCall ? callCard(nextCall.call, { limit: 1 })
         : h('div', { class: 'card empty' }, state.me.role === 'admin'

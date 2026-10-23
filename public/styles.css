@@ -313,9 +313,35 @@ textarea { resize: vertical; min-height: 80px; }
 @media (max-width: 600px) { .values { grid-template-columns: 1fr; gap: 2px; } .values dd { margin-bottom: 10px; } }
 
 /* ---------- installable app ---------- */
-.install-banner { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 14px; }
-.install-banner img { border-radius: 10px; flex: none; }
-.install-banner .grow { flex: 1; min-width: 0; }
+.install-guide { background: var(--accent-soft); border-bottom: 1px solid var(--border); }
+.install-guide-bar { display: flex; align-items: center; gap: 4px; padding: 0 12px 0 0; }
+.install-guide-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: none; border: 0; padding: 9px 8px 9px 24px; cursor: pointer; font-size: 14px;
+}
+.install-guide-toggle img { border-radius: 7px; flex: none; }
+.install-guide-toggle .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.install-guide .chevron { transition: transform .2s; color: var(--accent-strong); }
+.install-guide.open .chevron { transform: rotate(180deg); }
+.install-guide-close { background: none; border: 0; font-size: 20px; line-height: 1; color: var(--muted); cursor: pointer; padding: 6px; }
+.install-guide-body { display: grid; gap: 12px; padding: 4px 24px 18px; max-width: 640px; }
+.install-now { width: fit-content; }
+.guide-label { font-weight: 700; color: var(--accent-strong); }
+.guide-steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 10px; }
+.guide-steps li {
+  counter-increment: step; position: relative; padding: 10px 12px 10px 46px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; font-size: 14.5px;
+}
+.guide-steps li::before {
+  content: counter(step); position: absolute; left: 12px; top: 9px; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--accent); color: #fff; font-size: 13px; font-weight: 700;
+}
+.inline-ico { width: 18px; height: 18px; vertical-align: -3px; color: #2f7bf6; }
+.kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px solid var(--border); border-radius: 5px; padding: 0 4px; background: var(--surface-2); }
+@media (max-width: 860px) {
+  .install-guide-toggle { padding-left: 16px; }
+  .install-guide-body { padding: 4px 16px 16px; }
+}
 .offline { min-height: 100vh; min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 10px; text-align: center; padding: 24px; }
 .offline img { border-radius: 16px; }
 .offline p { margin: 0 0 8px; }
