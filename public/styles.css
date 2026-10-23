@@ -82,7 +82,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ---------- auth ---------- */
 .auth {
-  min-height: 100%; display: grid; grid-template-columns: 1.1fr 1fr;
+  min-height: 100vh; min-height: 100dvh; display: grid; grid-template-columns: 1.1fr 1fr;
 }
 .auth-hero {
   background: radial-gradient(1200px 500px at 0% 0%, #34477a 0%, transparent 60%), var(--sidebar);
@@ -101,6 +101,11 @@ textarea { resize: vertical; min-height: 80px; }
 .auth-card h2 { font-size: 26px; margin-bottom: 6px; }
 .auth-card form { margin-top: 22px; }
 .auth-switch { margin-top: 16px; text-align: center; }
+.google-btn { width: 100%; padding: 10px 14px; gap: 10px; margin-bottom: 4px; }
+.g-mark { display: inline-flex; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 14px 0 0; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.auth-card form { margin-top: 14px; }
 .brand-mark {
   width: 40px; height: 40px; border-radius: 10px; background: var(--sidebar-2);
   display: grid; place-items: center; color: var(--gold); font-weight: 700; font-size: 20px; flex: none;

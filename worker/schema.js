@@ -16,6 +16,14 @@ const STATEMENTS = [
     role TEXT NOT NULL DEFAULT 'member',
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
+  // Sign-in providers linked to a member, e.g. ('google', <Google account id>).
+  `CREATE TABLE IF NOT EXISTS oauth_accounts (
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    PRIMARY KEY (provider, subject)
+  )`,
   `CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

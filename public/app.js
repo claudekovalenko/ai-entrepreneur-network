@@ -216,17 +216,40 @@ window.addEventListener('hashchange', () => {
 
 // ---------- auth screens ----------
 
-function renderAuth(mode = 'login') {
+const GOOGLE_MARK = '<svg viewBox="0 0 48 48" width="18" height="18"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>';
+
+const AUTH_ERRORS = {
+  invite: 'To join with Google, enter the invite code first, then choose Continue with Google.',
+  google: 'Google sign-in did not finish. Please try again.',
+};
+
+function renderAuth(mode = 'login', errorMessage = '') {
   const [verse, ref] = verseOfDay();
   const isRegister = mode === 'register';
   const app = document.getElementById('app');
   app.innerHTML = '';
+  const needsInvite = isRegister && state.config.inviteRequired;
+  // The invite code is shared by Google sign-up and the email form, so it sits above both.
+  const inviteInput = needsInvite && h('input', { type: 'text', id: 'invite-code', name: 'inviteCode', required: true, autocomplete: 'off' });
+  const authError = h('p', { class: `error-text ${errorMessage ? '' : 'hidden'}`, role: 'alert' }, errorMessage);
+  const googleButton = state.config.googleEnabled && h('button', {
+    type: 'button', class: 'btn google-btn',
+    onclick: () => {
+      const invite = inviteInput ? inviteInput.value.trim() : '';
+      if (inviteInput && !invite) {
+        authError.textContent = 'Enter the invite code first.';
+        authError.classList.remove('hidden');
+        inviteInput.focus();
+        return;
+      }
+      location.href = `/api/auth/google/start${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`;
+    },
+  }, h('span', { class: 'g-mark', 'aria-hidden': 'true', html: GOOGLE_MARK }), isRegister ? 'Sign up with Google' : 'Continue with Google');
   const fields = isRegister
     ? [
         field('Full name', h('input', { type: 'text', name: 'name', required: true, autocomplete: 'name' })),
         field('Email', h('input', { type: 'email', name: 'email', required: true, autocomplete: 'email' })),
         field('Password', h('input', { type: 'password', name: 'password', required: true, minlength: 8, autocomplete: 'new-password' }), 'At least 8 characters'),
-        state.config.inviteRequired && field('Invite code', h('input', { type: 'text', name: 'inviteCode', required: true }), 'Ask the person who invited you'),
       ]
     : [
         field('Email', h('input', { type: 'email', name: 'email', required: true, autocomplete: 'email' })),
@@ -249,9 +272,14 @@ function renderAuth(mode = 'login') {
       h('div', { class: 'auth-card' },
         h('h2', { class: 'serif' }, isRegister ? 'Join the network' : 'Welcome back'),
         h('p', { class: 'muted' }, isRegister ? 'Create your account to start connecting.' : 'Sign in to continue the conversation.'),
+        authError,
+        inviteInput && field('Invite code', inviteInput, 'Ask the person who invited you'),
+        googleButton,
+        googleButton && h('div', { class: 'or' }, isRegister ? 'or sign up with email' : 'or sign in with email'),
         form(fields, {
           submitLabel: isRegister ? 'Create account' : 'Sign in',
           onSubmit: async (values) => {
+            if (inviteInput) values.inviteCode = inviteInput.value;
             await api(isRegister ? '/api/auth/register' : '/api/auth/login', { method: 'POST', body: values });
             await start();
             if (isRegister) openProfileEditor(true);
@@ -1627,10 +1655,13 @@ document.addEventListener('click', (e) => {
 
 (async function boot() {
   state.config = await api('/api/config');
+  // Google sign-in returns here with ?auth_error=… when it could not finish.
+  const authError = new URLSearchParams(location.search).get('auth_error');
+  if (authError) history.replaceState(null, '', location.pathname + location.hash);
   try {
     await start();
   } catch (err) {
-    if (err.status === 401) renderAuth('login');
+    if (err.status === 401) renderAuth(authError === 'invite' ? 'register' : 'login', AUTH_ERRORS[authError] ?? '');
     else document.getElementById('app').textContent = 'Could not load the network. Please refresh.';
   }
 })();

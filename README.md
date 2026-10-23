@@ -53,6 +53,17 @@ After adding them, open **Actions → Test and deploy → Run workflow**. The li
 link appears at the end of the deploy step (`https://ai-entrepreneur-network.<subdomain>.workers.dev`).
 Register first to become the admin, then share the link and invite code.
 
+### Google sign-in (optional)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), set up the
+   **OAuth consent screen** (External), then **Create credentials → OAuth client ID →
+   Web application**.
+2. Add the authorized redirect URI
+   `https://ai-entrepreneur-network.faith-journey-funnel.workers.dev/api/auth/google/callback`.
+3. Add repository secrets `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, then re-run the
+   workflow. The **Continue with Google** button appears once both are set. New members
+   still need the invite code; existing members can sign in with Google using the same email.
+
 ## Development
 
 ```bash

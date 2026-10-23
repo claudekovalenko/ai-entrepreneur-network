@@ -194,7 +194,11 @@ function on(method, pattern, handler, { auth = true, admin = false } = {}) {
   routes.push({ method, re, handler, auth, admin });
 }
 
-on('GET', '/api/config', ({ env }) => ({ inviteRequired: Boolean(env.INVITE_CODE), reactions: REACTIONS }), { auth: false });
+on('GET', '/api/config', ({ env }) => ({
+  inviteRequired: Boolean(env.INVITE_CODE),
+  googleEnabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+  reactions: REACTIONS,
+}), { auth: false });
 
 on('POST', '/api/auth/register', async ({ db, env, body, emit, setCookie }) => {
   const email = str(body.email, { max: 200, required: true, field: 'Email' }).toLowerCase();
@@ -232,6 +236,94 @@ on('POST', '/api/auth/logout', async ({ db, request, setCookie }) => {
   if (token) await db.prepare('DELETE FROM sessions WHERE token = ?').bind(token).run();
   setCookie(sessionCookie('', 0));
   return { ok: true };
+}, { auth: false });
+
+// ----- Google sign-in (OAuth 2.0 authorization code flow) -----
+
+const OAUTH_COOKIE = 'aen_oauth';
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+
+const redirect = (location) => new Response(null, { status: 302, headers: { Location: location } });
+const googleCallbackUrl = (url) => `${url.origin}/api/auth/google/callback`;
+
+function requireGoogle(env) {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) throw new HttpError(404, 'Google sign-in is not set up');
+}
+
+function decodeJwtPayload(jwt) {
+  const part = String(jwt).split('.')[1] ?? '';
+  const b64 = part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '=');
+  return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
+}
+
+// Starts sign-in: remembers a random state (and any invite code) in a short-lived cookie.
+on('GET', '/api/auth/google/start', ({ env, url, setCookie }) => {
+  requireGoogle(env);
+  const state = randomToken();
+  const invite = url.searchParams.get('invite') ?? '';
+  setCookie(`${OAUTH_COOKIE}=${state}.${encodeURIComponent(invite)}; Path=/api/auth/google; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
+  const params = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: googleCallbackUrl(url),
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    prompt: 'select_account',
+  });
+  return redirect(`${GOOGLE_AUTH_URL}?${params}`);
+}, { auth: false });
+
+on('GET', '/api/auth/google/callback', async ({ db, env, url, request, setCookie, emit }) => {
+  requireGoogle(env);
+  setCookie(`${OAUTH_COOKIE}=; Path=/api/auth/google; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
+  const fail = (reason) => redirect(`/?auth_error=${reason}`);
+  const [state, invite = ''] = (parseCookies(request.headers.get('Cookie') ?? '')[OAUTH_COOKIE] ?? '').split('.');
+  const code = url.searchParams.get('code');
+  if (!state || state !== url.searchParams.get('state') || !code) return fail('google');
+
+  // The ID token comes straight from Google over TLS in exchange for our secret,
+  // so its claims can be trusted without re-checking the signature.
+  const tokenRes = await fetch(env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: googleCallbackUrl(url),
+      grant_type: 'authorization_code',
+    }),
+  });
+  if (!tokenRes.ok) return fail('google');
+  let claims;
+  try {
+    claims = decodeJwtPayload((await tokenRes.json()).id_token);
+  } catch {
+    return fail('google');
+  }
+  if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.sub || !claims.email || claims.email_verified === false) {
+    return fail('google');
+  }
+  const email = String(claims.email).toLowerCase();
+
+  let user = await db.prepare(`SELECT u.* FROM oauth_accounts o JOIN users u ON u.id = o.user_id
+    WHERE o.provider = 'google' AND o.subject = ?`).bind(claims.sub).first();
+  if (!user) {
+    // Google has verified the email, so an existing member with it is the same person.
+    user = await db.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+    if (!user) {
+      if (env.INVITE_CODE && decodeURIComponent(invite) !== env.INVITE_CODE) return fail('invite');
+      const name = str(claims.name || email.split('@')[0], { max: 80 }) || 'New member';
+      user = await db.prepare(`INSERT INTO users (email, password_hash, name, role)
+        VALUES (?1, '', ?2, CASE WHEN EXISTS (SELECT 1 FROM users) THEN 'member' ELSE 'admin' END) RETURNING *`)
+        .bind(email, name).first();
+      emit('user:updated', publicUser(user));
+    }
+    await db.prepare("INSERT OR IGNORE INTO oauth_accounts (provider, subject, user_id) VALUES ('google', ?, ?)")
+      .bind(claims.sub, user.id).run();
+  }
+  setCookie(await startSession(db, user.id));
+  return redirect('/');
 }, { auth: false });
 
 async function startSession(db, userId) {
@@ -863,7 +955,7 @@ async function handleApi(request, env, ctx, url) {
   const result = await route.handler({
     request, env, url, db, user, params, body, emit, setCookie: (c) => cookies.push(c),
   });
-  const response = Response.json(result);
+  const response = result instanceof Response ? result : Response.json(result);
   for (const c of cookies) response.headers.append('Set-Cookie', c);
   return response;
 }

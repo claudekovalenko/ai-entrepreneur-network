@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { upcomingOccurrences, zonedToUtc } from '../worker/schedule.js';
 
 // Runs the real Worker (D1 + Durable Objects) locally with a throwaway database.
@@ -12,10 +13,21 @@ let stateDir;
 const port = 8800 + Math.floor(Math.random() * 500);
 const base = `http://localhost:${port}`;
 
+// Stands in for Google's token endpoint; each test sets the claims it should return.
+let googleClaims = {};
+const googleStub = http.createServer((req, res) => {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({ id_token: `${b64({ alg: 'none' })}.${b64(googleClaims)}.sig` }));
+});
+
 before(async () => {
+  await new Promise((resolve) => googleStub.listen(0, resolve));
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aen-test-'));
   wrangler = spawn('npx', ['wrangler', 'dev', '--port', String(port), '--persist-to', stateDir,
-    '--var', 'INVITE_CODE:faith', '--show-interactive-dev-session=false'], { stdio: 'ignore', detached: true });
+    '--var', 'INVITE_CODE:faith', '--var', 'GOOGLE_CLIENT_ID:test-client', '--var', 'GOOGLE_CLIENT_SECRET:shh',
+    '--var', `GOOGLE_TOKEN_URL:http://127.0.0.1:${googleStub.address().port}/token`,
+    '--show-interactive-dev-session=false'], { stdio: 'ignore', detached: true });
   for (let i = 0; i < 120; i++) {
     try {
       if ((await fetch(`${base}/api/config`)).ok) return;
@@ -26,6 +38,7 @@ before(async () => {
 });
 
 after(() => {
+  googleStub.close();
   process.kill(-wrangler.pid);
   fs.rmSync(stateDir, { recursive: true, force: true });
 });
@@ -236,6 +249,56 @@ test("what's working: share cases and blueprints, mark helpful", async () => {
   assert.equal(edited.data.playbook.hoursPerWeek, null);
   assert.equal(edited.data.playbook.revenue, '1k-5k');
   assert.equal((await alice(`/api/playbooks/${id}`, { method: 'DELETE' })).status, 200, 'admins can remove posts');
+});
+
+async function googleSignIn({ invite = '', claims, state: badState }) {
+  const start = await fetch(`${base}/api/auth/google/start${invite ? `?invite=${invite}` : ''}`, { redirect: 'manual' });
+  const location = new URL(start.headers.get('location'));
+  const oauthCookie = start.headers.get('set-cookie').split(';')[0];
+  googleClaims = { aud: 'test-client', email_verified: true, ...claims };
+  const state = badState ?? location.searchParams.get('state');
+  const res = await fetch(`${base}/api/auth/google/callback?code=abc&state=${state}`, { redirect: 'manual', headers: { cookie: oauthCookie } });
+  const session = (res.headers.getSetCookie?.() ?? []).find((c) => c.startsWith('aen_session=') && !c.startsWith('aen_session=;'));
+  return { start: location, status: res.status, location: res.headers.get('location'), cookie: session?.split(';')[0] };
+}
+
+test('Google sign-in: invite required for new members, links existing emails', async () => {
+  assert.equal((await (await fetch(`${base}/api/config`)).json()).googleEnabled, true);
+
+  const tampered = await googleSignIn({ invite: 'faith', claims: { sub: 'g-x', email: 'x@x.com' }, state: 'forged' });
+  assert.equal(tampered.location, '/?auth_error=google');
+  assert.equal(tampered.cookie, undefined);
+
+  const noInvite = await googleSignIn({ claims: { sub: 'g-dana', email: 'dana@x.com', name: 'Dana Lee' } });
+  assert.equal(noInvite.location, '/?auth_error=invite');
+
+  const dana = await googleSignIn({ invite: 'faith', claims: { sub: 'g-dana', email: 'Dana@x.com', name: 'Dana Lee' } });
+  assert.equal(dana.start.origin, 'https://accounts.google.com');
+  assert.equal(dana.start.searchParams.get('client_id'), 'test-client');
+  assert.equal(dana.start.searchParams.get('redirect_uri'), `${base}/api/auth/google/callback`);
+  assert.equal(dana.location, '/');
+  const me = await (await fetch(`${base}/api/me`, { headers: { cookie: dana.cookie } })).json();
+  assert.equal(me.user.name, 'Dana Lee');
+  assert.equal(me.user.email, 'dana@x.com');
+  assert.equal(me.user.role, 'member');
+
+  // Returning Google members don't need the invite code again.
+  const again = await googleSignIn({ claims: { sub: 'g-dana', email: 'dana@x.com' } });
+  assert.equal(again.location, '/');
+
+  // An existing email/password member signing in with Google lands in the same account.
+  const alice = await googleSignIn({ claims: { sub: 'g-alice', email: 'a@x.com', name: 'Someone Else' } });
+  const aliceMe = await (await fetch(`${base}/api/me`, { headers: { cookie: alice.cookie } })).json();
+  assert.equal(aliceMe.user.id, 1);
+  assert.equal(aliceMe.user.name, 'Alice');
+
+  const wrongAudience = await googleSignIn({ invite: 'faith', claims: { sub: 'g-y', email: 'y@x.com', aud: 'other-app' } });
+  assert.equal(wrongAudience.location, '/?auth_error=google');
+
+  // Google-only accounts have no password to guess.
+  assert.equal((await fetch(`${base}/api/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'dana@x.com', password: '' }),
+  })).status, 401);
 });
 
 test('recurring calls keep local wall-clock time across DST', () => {
