@@ -1,4 +1,4 @@
-# AI Entrepreneur Network
+# AI Christian Entrepreneurs
 
 A private community space for Christian entrepreneurs who are using AI to build
 ventures that free up their time — so more of it can go toward making disciples

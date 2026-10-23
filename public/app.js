@@ -1,4 +1,4 @@
-// AI Entrepreneur Network — single-page client.
+// AI Christian Entrepreneurs — single-page client.
 
 const VERSES = [
   ['Whatever you do, work heartily, as for the Lord and not for men.', 'Colossians 3:23'],
@@ -260,7 +260,8 @@ function renderAuth(mode = 'login', errorMessage = '') {
   app.append(h('div', { class: 'auth' },
     h('section', { class: 'auth-hero' },
       h('div', { class: 'brand-mark' }, '✝'),
-      h('h1', { class: 'serif' }, 'AI Entrepreneur Network'),
+      h('div', { class: 'auth-eyebrow' }, 'ACE · A community for Christian entrepreneurs'),
+      h('h1', { class: 'serif' }, 'AI Christian Entrepreneurs'),
       h('p', {}, 'A community of Christian builders using AI to create ventures that give back time, not to hustle or chase wealth, but to have more of our lives for God, family, serving, and making disciples.'),
       h('ul', {},
         h('li', {}, 'Group channels for encouragement, prayer, ideas and content'),
@@ -308,7 +309,7 @@ function renderSidebar() {
   return h('aside', { class: 'sidebar' },
     h('div', { class: 'sidebar-head' },
       h('div', { class: 'brand-mark' }, '✝'),
-      h('div', {}, h('strong', {}, 'AI Entrepreneur Network'), h('span', {}, `${state.users.size} members · ${state.online.size} online`))),
+      h('div', {}, h('strong', {}, 'AI Christian Entrepreneurs'), h('span', {}, `${state.users.size} members · ${state.online.size} online`))),
     h('nav', { class: 'sidebar-scroll' },
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
@@ -447,7 +448,7 @@ const INSTALL_GUIDES = {
       `Tap the <strong>Share</strong> button ${ICON_SHARE} at the bottom of the screen (at the top on iPad). On newer iPhones, tap <strong>•••</strong> first, then <strong>Share</strong>.`,
       `Scroll down and tap <strong>Add to Home Screen</strong> ${ICON_PLUS}.`,
       'Tap <strong>Add</strong> in the top-right corner.',
-      'Open <strong>AI Network</strong> from your Home Screen. It opens full-screen like an app.',
+      'Open <strong>ACE Network</strong> from your Home Screen. It opens full-screen like an app.',
     ],
   },
   'ios-chrome': {
@@ -456,7 +457,7 @@ const INSTALL_GUIDES = {
       `Tap the <strong>Share</strong> button ${ICON_SHARE} at the right end of the address bar.`,
       `Tap <strong>Add to Home Screen</strong> ${ICON_PLUS}. (If you don’t see it, open this page in Safari instead.)`,
       'Tap <strong>Add</strong>.',
-      'Open <strong>AI Network</strong> from your Home Screen.',
+      'Open <strong>ACE Network</strong> from your Home Screen.',
     ],
   },
   'ios-inapp': {
@@ -473,7 +474,7 @@ const INSTALL_GUIDES = {
       `Tap the menu ${ICON_DOTS} in the top-right corner.`,
       'Tap <strong>Install app</strong> (on some phones it says <strong>Add to Home screen</strong>).',
       'Tap <strong>Install</strong> to confirm.',
-      'Open <strong>AI Network</strong> from your home screen or app drawer.',
+      'Open <strong>ACE Network</strong> from your home screen or app drawer.',
     ],
   },
   'android-samsung': {

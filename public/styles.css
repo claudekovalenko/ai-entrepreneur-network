@@ -89,6 +89,7 @@ textarea { resize: vertical; min-height: 80px; }
   color: #fff; padding: 56px; display: flex; flex-direction: column; justify-content: center; gap: 22px;
 }
 .auth-hero h1 { font-size: 44px; }
+.auth-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin-bottom: -12px; }
 .auth-hero p { color: var(--sidebar-text); max-width: 520px; font-size: 17px; margin: 0; }
 .auth-hero blockquote {
   margin: 12px 0 0; padding-left: 16px; border-left: 3px solid var(--gold);

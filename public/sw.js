@@ -1,7 +1,7 @@
 // Service worker: keeps the app shell available offline. Member data (/api/*)
 // always comes from the network and is never cached on the device.
 
-const CACHE = 'aen-shell-v1';
+const CACHE = 'aen-shell-v2';
 const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon.svg'];
 
