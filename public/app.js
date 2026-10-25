@@ -295,7 +295,7 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
         h('li', {}, 'Projects, working businesses and blueprints to learn from'),
         h('li', {}, 'Weekly community calls')),
       h('blockquote', {}, `“${verse}” — ${ref}`),
-      h('p', { class: 'auth-vision' }, h('strong', {}, 'Our vision: '), VISION.statement)),
+      h('p', { class: 'auth-vision' }, h('strong', {}, 'Our vision: '), VISION.statement, ' ', h('a', { href: '/vision', class: 'auth-vision-link' }, 'Read the full vision →'))),
     h('section', { class: 'auth-panel' },
       h('div', { class: 'auth-card' },
         h('h2', { class: 'serif' }, heading),
@@ -890,10 +890,55 @@ const VISION = {
   ],
 };
 
+const VISION_URL = () => `${location.origin}/vision`;
+
+async function shareVision() {
+  const url = VISION_URL();
+  const text = 'ACE (AI Christian Entrepreneurs): using AI to build businesses that give back our time for loving God, our families, and making disciples.';
+  // Phones open their share sheet; computers copy the link.
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'The ACE vision', text, url });
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+  copyText(url);
+}
+
 function renderVision() {
   return [
-    topbar('Our vision', 'Why this network exists and how we build together'),
-    h('div', { class: 'page' }, h('div', { class: 'page-inner vision' },
+    topbar('Our vision', 'Why this network exists and how we build together',
+      [h('button', { class: 'btn small', onclick: shareVision }, 'Share vision')]),
+    h('div', { class: 'page' }, visionContent()),
+  ];
+}
+
+// Public page at /vision that anyone can open, no account needed.
+function renderPublicVision() {
+  document.title = 'The ACE vision · AI Christian Entrepreneurs';
+  const signedIn = Boolean(state.me);
+  document.getElementById('app').replaceChildren(h('div', { class: 'public-vision' },
+    h('header', { class: 'public-bar' },
+      h('a', { class: 'public-brand', href: '/' }, h('span', { class: 'brand-mark' }, '✝'),
+        h('span', {}, h('strong', {}, 'ACE'), h('small', {}, 'AI Christian Entrepreneurs'))),
+      h('div', { class: 'public-actions' },
+        h('button', { class: 'btn small', onclick: shareVision }, 'Share'),
+        h('a', { class: 'btn small primary', href: '/' }, signedIn ? 'Open ACE' : 'Sign in'))),
+    h('main', { class: 'public-main' },
+      visionContent(),
+      !signedIn && h('section', { class: 'card public-join' },
+        h('h2', { class: 'serif' }, 'Want to be part of ACE?'),
+        h('p', { class: 'muted' }, 'ACE is a private, invite-only group. If someone gave you an invite link or code, use it to join. If not, reach out to the person who shared this page with you.'),
+        h('div', { class: 'public-join-actions' },
+          state.config?.codeEnabled && h('a', { class: 'btn primary', href: '/#/join-code' }, 'Join with an invite code'),
+          h('a', { class: 'btn', href: '/' }, 'I’m already a member'))))));
+  window.scrollTo(0, 0);
+}
+
+function visionContent() {
+  return h('div', { class: 'page-inner vision' },
       h('section', { class: 'hero-card' },
         h('div', { class: 'eyebrow' }, 'The vision'),
         h('h1', { class: 'serif' }, VISION.statement),
@@ -925,8 +970,7 @@ function renderVision() {
           h('li', {}, h('strong', {}, 'Across the U.S.'), h('span', {}, 'Wherever our members are')),
           h('li', {}, h('strong', {}, 'The ends of the earth'), h('span', {}, 'Every nation'))),
         h('p', {}, 'Full-time ministry is not a requirement for anyone in ACE. But ultimately we are all focused on making disciples: raising up people who love Jesus and want to pursue God.'),
-        h('div', { class: 'verse' }, '“You will be my witnesses in Jerusalem and in all Judea and Samaria, and to the end of the earth.” — Acts 1:8')))),
-  ];
+        h('div', { class: 'verse' }, '“You will be my witnesses in Jerusalem and in all Judea and Samaria, and to the end of the earth.” — Acts 1:8')));
 }
 
 // ---------- rooms (channels + DMs) ----------
@@ -2243,6 +2287,11 @@ document.addEventListener('click', (e) => {
   } catch {
     state.config = { reactions: [] };
   }
+  // The public vision page works without an account.
+  if (/^\/vision\/?$/.test(location.pathname)) {
+    try { state.me = (await api('/api/me')).user; } catch { /* not signed in */ }
+    return renderPublicVision();
+  }
   // Google sign-in returns here with ?auth_error=… when it could not finish.
   const authError = new URLSearchParams(location.search).get('auth_error');
   if (authError) history.replaceState(null, '', location.pathname + location.hash);
@@ -2255,6 +2304,7 @@ document.addEventListener('click', (e) => {
     }
   } catch (err) {
     if (err.status === 401 && joinToken) renderJoin(joinToken);
+    else if (err.status === 401 && location.hash === '#/join-code' && state.config.codeEnabled) renderAuth('code');
     else if (err.status === 401) renderAuth(state.config.setupNeeded ? 'setup' : 'login', AUTH_ERRORS[authError] ?? '');
     else document.getElementById('app').replaceChildren(h('div', { class: 'offline' },
       h('img', { src: '/icons/icon-192.png', alt: '', width: 72, height: 72 }),

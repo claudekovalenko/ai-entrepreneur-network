@@ -277,6 +277,25 @@ textarea { resize: vertical; min-height: 80px; }
 .helpful { white-space: nowrap; }
 .modal .stat-chips { margin-bottom: 18px; }
 
+/* ---------- public vision page ---------- */
+.public-vision { min-height: 100vh; min-height: 100dvh; background: var(--bg); }
+.public-bar {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--sidebar); color: #fff;
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px));
+}
+.public-brand { display: flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; min-width: 0; }
+.public-brand .brand-mark { width: 36px; height: 36px; font-size: 18px; }
+.public-brand strong { display: block; font-size: 16px; }
+.public-brand small { display: block; color: var(--sidebar-muted); font-size: 12px; white-space: nowrap; }
+.public-actions { display: flex; gap: 8px; flex: none; }
+.public-main { padding: 24px max(16px, env(safe-area-inset-right, 0px)) calc(40px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.public-join { max-width: 1040px; margin: 28px auto 0; display: grid; gap: 10px; }
+.public-join h2 { font-size: 22px; }
+.public-join p { margin: 0; max-width: 68ch; }
+.public-join-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.auth-vision-link { color: var(--gold); white-space: nowrap; }
+
 /* ---------- suggestions ---------- */
 .suggest-box { margin-bottom: 18px; }
 .suggest-box textarea { min-height: 56px; margin-top: 8px; }
