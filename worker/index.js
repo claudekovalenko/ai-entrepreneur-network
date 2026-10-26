@@ -261,10 +261,11 @@ on('GET', '/api/invites', async ({ db }) => ({
 
 on('POST', '/api/invites', async ({ db, user, body }) => {
   const name = str(body.name, { max: 80, required: true, field: 'Name' });
-  const email = str(body.email, { max: 200, required: true, field: 'Email' }).toLowerCase();
+  // Email is optional: an admin can create a link from just a name and send it however they like.
+  const email = str(body.email, { max: 200, field: 'Email' }).toLowerCase();
   const note = str(body.note, { max: 300, field: 'Note' });
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, 'Enter a valid email');
-  if (await db.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) {
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, 'Enter a valid email');
+  if (email && await db.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) {
     throw new HttpError(409, 'That person is already a member');
   }
   const token = randomToken().slice(0, 32);

@@ -105,6 +105,7 @@ textarea { resize: vertical; min-height: 80px; }
 .past-invites summary { cursor: pointer; margin-bottom: 8px; }
 .invite-share { display: grid; gap: 10px; }
 .invite-share .btn { width: fit-content; }
+.invite-share-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .invite-share label.field { margin: 6px 0 0; }
 .auth-hero p { color: var(--sidebar-text); max-width: 520px; font-size: 17px; margin: 0; }
 .auth-hero blockquote {

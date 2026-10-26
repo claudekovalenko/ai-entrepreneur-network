@@ -364,6 +364,8 @@ function renderSidebar() {
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
       navItem({ href: '#/calls', icon: h('span', { class: 'icon' }, '☏'), label: 'Community calls', active: r.name === 'calls' }),
       navItem({ href: '#/members', icon: h('span', { class: 'icon' }, '☺'), label: 'Members', active: r.name === 'members' }),
+      isAdmin && h('button', { class: 'nav-item', type: 'button', onclick: openInviteForm },
+        h('span', { class: 'icon' }, '＋'), h('span', { class: 'label' }, 'Invite someone')),
       h('button', { class: 'nav-item', type: 'button', onclick: openNotificationSettings },
         h('span', { class: 'icon' }, '🔔'), h('span', { class: 'label' }, 'Notifications'),
         pushState === 'on' ? h('span', { class: 'small', style: 'opacity:.7' }, 'On') : null),
@@ -1965,7 +1967,7 @@ async function loadInvites() {
     h('div', { class: 'section-head' }, h('h2', {}, `Pending invites (${pending.length})`)),
     pending.length
       ? h('div', { class: 'card list-card' }, pending.map((i) => h('div', { class: 'invite-row' },
-        h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, `${i.email} · expires ${shortDate(i.expiresAt)}`)),
+        h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, `${i.email ? `${i.email} · ` : ''}expires ${shortDate(i.expiresAt)}`)),
         h('button', { class: 'btn small', onclick: () => copyText(inviteUrl(i.token)) }, 'Copy link'),
         h('button', { class: 'btn small ghost danger', onclick: async () => {
           if (!confirm(`Cancel ${i.name}’s invite? The link will stop working.`)) return;
@@ -1977,7 +1979,7 @@ async function loadInvites() {
       : h('p', { class: 'muted small' }, 'No pending invites. Use “Invite someone” to send a personal link.'),
     past.length > 0 && h('details', { class: 'past-invites' }, h('summary', { class: 'small muted' }, 'Past invites'),
       h('div', { class: 'card list-card' }, past.map((i) => h('div', { class: 'invite-row' },
-        h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, i.email)),
+        h('div', { class: 'grow' }, h('strong', {}, i.name), i.email && h('div', { class: 'muted small' }, i.email)),
         h('span', { class: `chip ${i.status === 'joined' ? 'launched' : ''}` }, statusText[i.status]))))),
   ].filter(Boolean));
 }
@@ -2031,14 +2033,18 @@ function editInviteCode(current) {
 }
 
 function openInviteForm() {
-  const close = openModal('Invite someone to ACE', h('div', {},
-    h('p', { class: 'muted', style: 'margin-top:0' }, 'Each invite is a personal link for one person. It works once and expires in 14 days.'),
+  document.querySelector('.shell')?.classList.remove('nav-open');
+  const more = h('div', { class: 'hidden' },
+    field('Their email (optional)', h('input', { type: 'email', id: 'invite-email', name: 'email', maxlength: 200 }), 'Fills it in for them when they sign up'),
+    field('Note to yourself (optional)', h('input', { type: 'text', id: 'invite-note', name: 'note', maxlength: 300, placeholder: 'e.g. Met at church, building an AI bookkeeping service' })));
+  const close = openModal('Invite someone', h('div', {},
+    h('p', { class: 'muted', style: 'margin-top:0' }, 'Type their name and get a personal link to send them. It works once and expires in 14 days.'),
     form([
-      field('Their name', h('input', { type: 'text', id: 'invite-name', name: 'name', required: true, maxlength: 80 })),
-      field('Their email', h('input', { type: 'email', id: 'invite-email', name: 'email', required: true, maxlength: 200 })),
-      field('Note to yourself (optional)', h('input', { type: 'text', id: 'invite-note', name: 'note', maxlength: 300, placeholder: 'e.g. Met at church, building an AI bookkeeping service' })),
+      field('Their name', h('input', { type: 'text', id: 'invite-name', name: 'name', required: true, maxlength: 80, autocomplete: 'off' })),
+      h('button', { type: 'button', class: 'btn small ghost', style: 'margin:-6px 0 8px', onclick: (e) => { more.classList.remove('hidden'); e.currentTarget.remove(); } }, '+ Add email or a note'),
+      more,
     ], {
-      submitLabel: 'Create invite link',
+      submitLabel: 'Create link',
       onSubmit: async (values) => {
         const { invite } = await api('/api/invites', { method: 'POST', body: values });
         close();
@@ -2054,10 +2060,20 @@ function showInviteLink(invite) {
   const message = `Hi ${first}, I’d love to invite you to ACE (AI Christian Entrepreneurs), a small, private group of Christians using AI to build businesses that give back time for God, family, and ministry. Here’s your personal invite link (it works once and expires in 14 days):\n${url}`;
   const linkInput = h('input', { type: 'text', id: 'invite-link', readonly: true, value: url });
   const messageInput = h('textarea', { id: 'invite-message', rows: 6, readonly: true, value: message });
-  openModal(`Invite ready for ${first}`, h('div', { class: 'invite-share' },
-    h('p', { class: 'muted', style: 'margin-top:0' }, `Send this link to ${invite.name} by text or email. Only send it to them; anyone with the link can use it once.`),
+  const share = async () => {
+    try {
+      await navigator.share({ title: 'Join ACE', text: message.replace(`\n${url}`, ''), url });
+    } catch (err) {
+      if (err?.name !== 'AbortError') copyText(message, messageInput);
+    }
+  };
+  openModal(`Link ready for ${first}`, h('div', { class: 'invite-share' },
+    h('p', { class: 'muted', style: 'margin-top:0' }, `Send this to ${invite.name} by text or email. It works once, for them, and expires in 14 days.`),
     field('Personal invite link', linkInput),
-    h('button', { class: 'btn primary', onclick: () => copyText(url, linkInput) }, 'Copy link'),
+    h('div', { class: 'invite-share-actions' },
+      navigator.share && h('button', { class: 'btn primary', onclick: share }, 'Share'),
+      h('button', { class: `btn ${navigator.share ? '' : 'primary'}`, onclick: () => copyText(url, linkInput) }, 'Copy link'),
+      h('button', { class: 'btn ghost', onclick: () => { closeModal(); openInviteForm(); } }, 'Invite another')),
     field('Or copy a ready-to-send message', messageInput),
     h('button', { class: 'btn', onclick: () => copyText(message, messageInput) }, 'Copy message')));
 }

@@ -123,8 +123,14 @@ test('membership is invite-only: personal, single-use links from an admin', asyn
   assert.equal((await bob('/api/invites', { method: 'POST', body: { name: 'X', email: 'x@x.com' } })).status, 403);
   assert.equal((await alice('/api/invites', { method: 'POST', body: { name: 'Bob', email: 'B@x.com' } })).status, 409, 'already a member');
 
+  // A link can be made from just a name.
+  const nameOnly = await alice('/api/invites', { method: 'POST', body: { name: 'Just A Name' } });
+  assert.equal(nameOnly.status, 200);
+  assert.equal((await client()(`/api/invites/${nameOnly.data.invite.token}`)).data.invite.email, '');
+  await alice(`/api/invites/${nameOnly.data.invite.token}`, { method: 'DELETE' });
+
   const list = await alice('/api/invites');
-  assert.deepEqual(list.data.invites.map((i) => i.status).sort(), ['cancelled', 'joined', 'joined']);
+  assert.deepEqual(list.data.invites.map((i) => i.status).sort(), ['cancelled', 'cancelled', 'joined', 'joined']);
 });
 
 test('the group invite code still works, and admins can change or turn it off', async () => {
