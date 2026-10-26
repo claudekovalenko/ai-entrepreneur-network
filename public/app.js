@@ -1077,33 +1077,147 @@ function tourChecklist() {
     done ? h('span', { class: 'small muted' }, 'Done') : h('button', { class: 'btn small', onclick: act }, 'Go'))));
 }
 
+// Short labels for the slider tabs at the top of the walkthrough.
+const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Calls', 'Suggestions', 'Where it leads', 'Next steps'];
+
+// A slowly turning 3D block with the step's icon on its faces.
+function tourCube(icon) {
+  const face = (side) => h('div', { class: `cube-face ${side}` }, side === 'front' || side === 'back' ? icon : '');
+  return h('div', { class: 'cube-scene', 'aria-hidden': 'true' },
+    h('div', { class: 'cube' }, ['front', 'back', 'right', 'left', 'top', 'bottom'].map(face)),
+    h('div', { class: 'cube-shadow' }));
+}
+
+// Tilted orbits: LA Metro at the center, then the U.S., then the ends of the earth.
+function tourOrbit() {
+  return h('div', { class: 'orbit-scene', 'aria-hidden': 'true' },
+    h('div', { class: 'orbit-plane' },
+      [1, 2, 3].map((n) => h('div', { class: `orbit-ring r${n}` }, h('span', { class: 'orbit-dot' })))),
+    h('div', { class: 'orbit-core' }, '✝'),
+    h('div', { class: 'orbit-labels' },
+      h('span', { class: 'l1' }, 'LA Metro'), h('span', { class: 'l2' }, 'Across the U.S.'), h('span', { class: 'l3' }, 'The ends of the earth')));
+}
+
+let tourKeysBound = false;
+
 function renderTour(stepIndex = 0) {
-  const i = Math.min(stepIndex, TOUR.length - 1);
-  const step = TOUR[i];
-  const last = i === TOUR.length - 1;
-  const goStep = (n) => go(`#/tour/${n + 1}`);
+  let current = Math.min(stepIndex, TOUR.length - 1);
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const slides = TOUR.map((step, i) => h('article', {
+    class: 'tour-slide', 'aria-roledescription': 'slide', 'aria-label': `${i + 1} of ${TOUR.length}: ${step.title}`,
+  },
+    h('div', { class: 'tour-art' }, i === 8 ? tourOrbit() : tourCube(step.icon)),
+    h('div', { class: 'tour-copy' },
+      h('div', { class: 'tour-kicker' }, `${i + 1} of ${TOUR.length} · ${step.kicker}`),
+      h('h2', { class: 'serif' }, step.title),
+      (step.body || []).map((p) => h('p', {}, p)),
+      step.note && h('p', { class: 'tour-note' }, step.note),
+      step.verse && h('div', { class: 'tour-verse' }, step.verse),
+      step.checklist && [h('p', {}, 'A few things that will help you get the most out of ACE:'), tourChecklist()],
+      step.action && h('a', { class: 'btn tour-action', href: step.action[1] }, `${step.action[0]} →`))));
+
+  const track = h('div', { class: 'tour-track' }, slides);
+  const segments = TOUR.map((_, i) => h('button', {
+    class: 'tour-seg', 'aria-label': `Go to step ${i + 1}: ${TOUR[i].title}`, onclick: () => setStep(i),
+  }, h('span', { class: 'tour-seg-fill' })));
+  const tabs = TOUR_TABS.map((label, i) => h('button', { class: 'tour-tab', role: 'tab', onclick: () => setStep(i) }, label));
+  const tabRow = h('div', { class: 'tour-tabs', role: 'tablist', 'aria-label': 'Walkthrough sections' }, tabs);
+  const back = h('button', { class: 'btn tour-back', onclick: () => setStep(current - 1) }, '← Back');
+  const next = h('button', { class: 'btn primary tour-next', onclick: () => (current === TOUR.length - 1 ? go('#/home') : setStep(current + 1)) });
+  const stage = h('div', { class: 'tour-stage' }, track);
+
+  // Places every slide on a 3D carousel around the current one. `drag` is a fraction of a slide.
+  function layout(drag = 0) {
+    const wide = stage.clientWidth > 700;
+    slides.forEach((slide, i) => {
+      const offset = i - current - drag;
+      const distance = Math.abs(offset);
+      const x = offset * (wide ? 58 : 88);
+      const z = -Math.min(distance, 3) * (wide ? 260 : 200);
+      const rotate = Math.max(-1, Math.min(1, offset)) * -32;
+      slide.style.transform = `translateX(${x}%) translateZ(${z}px) rotateY(${rotate}deg)`;
+      slide.style.opacity = distance > 1.6 ? '0' : String(1 - distance * 0.42);
+      slide.style.zIndex = String(100 - Math.round(distance * 10));
+      slide.classList.toggle('current', i === current && drag === 0);
+      slide.setAttribute('aria-hidden', String(i !== current));
+      slide.inert = i !== current;
+    });
+  }
+
+  function setStep(n) {
+    current = Math.max(0, Math.min(TOUR.length - 1, n));
+    layout(0);
+    segments.forEach((seg, i) => {
+      seg.classList.toggle('done', i < current);
+      seg.classList.toggle('on', i === current);
+    });
+    tabs.forEach((tab, i) => tab.setAttribute('aria-selected', String(i === current)));
+    // Scroll only the tab row (scrollIntoView would also shift the page sideways).
+    const tab = tabs[current];
+    tabRow.scrollTo({ left: tab.offsetLeft - (tabRow.clientWidth - tab.offsetWidth) / 2, behavior: reduceMotion ? 'auto' : 'smooth' });
+    // The stage takes the current card's height, so the controls sit right under it.
+    stage.style.height = `${slides[current].offsetHeight}px`;
+    back.style.visibility = current === 0 ? 'hidden' : 'visible';
+    next.textContent = current === 0 ? 'Start the walkthrough →' : current === TOUR.length - 1 ? 'Finish' : 'Next →';
+    history.replaceState(null, '', `#/tour/${current + 1}`);
+    state.route = parseRoute();
+  }
+
+  // Swipe between slides on phones (and drag with a mouse).
+  let startX = null;
+  let dx = 0;
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('a, button, input, textarea')) return;
+    startX = e.clientX;
+    dx = 0;
+    track.classList.add('dragging');
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (startX !== null) {
+      dx = e.clientX - startX;
+      layout(-dx / Math.max(stage.clientWidth, 1));
+      return;
+    }
+    // Gentle tilt toward the pointer on the front card.
+    if (reduceMotion || e.pointerType !== 'mouse') return;
+    const rect = stage.getBoundingClientRect();
+    track.style.setProperty('--tilt-x', `${((e.clientY - rect.top) / rect.height - 0.5) * -6}deg`);
+    track.style.setProperty('--tilt-y', `${((e.clientX - rect.left) / rect.width - 0.5) * 8}deg`);
+  });
+  const endDrag = () => {
+    if (startX === null) return;
+    startX = null;
+    track.classList.remove('dragging');
+    if (Math.abs(dx) > 50) setStep(current + (dx < 0 ? 1 : -1)); else layout(0);
+  };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+  stage.addEventListener('pointerleave', () => {
+    endDrag();
+    track.style.setProperty('--tilt-x', '0deg');
+    track.style.setProperty('--tilt-y', '0deg');
+  });
+
+  if (!tourKeysBound) {
+    tourKeysBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (state.route.name !== 'tour' || document.querySelector('.modal-backdrop') || e.target.closest('input, textarea')) return;
+      if (e.key === 'ArrowRight') document.querySelector('.tour-next')?.click();
+      if (e.key === 'ArrowLeft') document.querySelector('.tour-back')?.click();
+    });
+  }
+
+  afterRenderHooks.push(() => setStep(current));
+  window.addEventListener('resize', () => setStep(current), { once: true });
+
   return [
     topbar('Start here', 'A walkthrough of the vision and how ACE works'),
-    h('div', { class: 'page' }, h('div', { class: 'page-inner tour' },
-      h('div', { class: 'tour-progress', 'aria-label': `Step ${i + 1} of ${TOUR.length}` },
-        TOUR.map((_, n) => h('button', {
-          class: `tour-dot ${n === i ? 'on' : ''} ${n < i ? 'seen' : ''}`,
-          'aria-label': `Step ${n + 1}: ${TOUR[n].title}`, onclick: () => goStep(n),
-        }))),
-      h('article', { class: 'tour-card' },
-        h('div', { class: 'tour-step-head' },
-          h('span', { class: 'tour-icon', 'aria-hidden': 'true' }, step.icon),
-          h('div', {}, h('div', { class: 'tour-kicker' }, `${i + 1} of ${TOUR.length} · ${step.kicker}`), h('h2', { class: 'serif' }, step.title))),
-        (step.body || []).map((p) => h('p', {}, p)),
-        step.note && h('p', { class: 'tour-note' }, step.note),
-        step.verse && h('div', { class: 'tour-verse' }, step.verse),
-        step.checklist && [h('p', {}, 'A few things that will help you get the most out of ACE:'), tourChecklist()],
-        step.action && h('a', { class: 'btn', href: step.action[1] }, `${step.action[0]} →`)),
-      h('div', { class: 'tour-nav' },
-        i > 0 ? h('button', { class: 'btn ghost', onclick: () => goStep(i - 1) }, '← Back') : h('span'),
-        last
-          ? h('a', { class: 'btn primary', href: '#/home' }, 'Finish')
-          : h('button', { class: 'btn primary', onclick: () => goStep(i + 1) }, i === 0 ? 'Start the walkthrough →' : 'Next →')))),
+    h('div', { class: 'page tour-page' }, h('div', { class: 'tour3d' },
+      h('div', { class: 'tour-glow g1' }), h('div', { class: 'tour-glow g2' }),
+      h('div', { class: 'tour-top' }, h('div', { class: 'tour-segments' }, segments), tabRow),
+      stage,
+      h('div', { class: 'tour-controls' }, back, h('span', { class: 'tour-hint' }, 'Swipe or use the arrow keys'), next))),
   ];
 }
 
