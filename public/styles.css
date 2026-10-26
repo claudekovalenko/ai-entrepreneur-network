@@ -279,6 +279,41 @@ textarea { resize: vertical; min-height: 80px; }
 .helpful { white-space: nowrap; }
 .modal .stat-chips { margin-bottom: 18px; }
 
+/* ---------- start here walkthrough ---------- */
+.tour { max-width: 680px; display: grid; gap: 18px; }
+.tour-progress { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.tour-dot { width: 26px; height: 6px; border-radius: 999px; border: 0; padding: 0; cursor: pointer; background: var(--border); }
+.tour-dot.seen { background: var(--accent-soft); }
+.tour-dot.on { background: var(--accent); width: 40px; }
+.tour-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 26px; box-shadow: var(--shadow); display: grid; gap: 14px; }
+.tour-card p { margin: 0; font-size: 16px; line-height: 1.6; }
+.tour-card .btn { width: fit-content; }
+.tour-step-head { display: flex; gap: 14px; align-items: center; }
+.tour-icon {
+  width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; flex: none;
+  background: var(--sidebar); color: var(--gold); font-size: 24px; font-weight: 700;
+}
+.tour-kicker { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-strong); }
+.tour-step-head h2 { font-size: 24px; text-wrap: balance; }
+.tour-note { background: var(--accent-soft); border-radius: 10px; padding: 12px 14px; font-size: 15px !important; }
+.tour-verse { font-style: italic; color: var(--muted); border-left: 3px solid var(--accent); padding-left: 12px; }
+.tour-nav { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.tour-checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tour-checklist li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.tour-checklist .grow { flex: 1; min-width: 0; }
+.tour-checklist .tick {
+  width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; flex: none;
+}
+.tour-checklist li.done .tick { background: var(--ok); border-color: var(--ok); color: #fff; }
+.tour-checklist li.done .grow { color: var(--muted); text-decoration: line-through; }
+.hero-links { display: flex; gap: 18px; flex-wrap: wrap; }
+@media (max-width: 860px) {
+  .tour-card { padding: 20px; }
+  .tour-step-head h2 { font-size: 21px; }
+  .tour-card p { font-size: 15.5px; }
+}
+
 /* ---------- public vision page ---------- */
 .public-vision { min-height: 100vh; min-height: 100dvh; background: var(--bg); }
 .public-bar {

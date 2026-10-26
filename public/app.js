@@ -202,6 +202,7 @@ function parseRoute() {
   if (parts[0] === 'suggestions') return { name: 'suggestions', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
+  if (parts[0] === 'tour') return { name: 'tour', step: Math.max(0, (Number(parts[1]) || 1) - 1) };
   if (parts[0] === 'chat') return { name: 'chat' };
   return { name: 'home' };
 }
@@ -358,6 +359,7 @@ function renderSidebar() {
       h('div', {}, h('strong', {}, 'ACE'), h('span', {}, 'AI Christian Entrepreneurs'))),
     h('nav', { class: 'sidebar-scroll' },
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
+      navItem({ href: '#/tour', icon: h('span', { class: 'icon' }, '➜'), label: 'Start here', active: r.name === 'tour' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
@@ -814,6 +816,7 @@ function renderMain() {
   else if (r.name === 'chat') main.append(...renderChatList());
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
+  else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
   const guide = r.name !== 'room' && installGuide();
@@ -844,7 +847,9 @@ function renderHome() {
         h('h1', { class: 'serif' }, `Welcome, ${firstName}.`),
         h('p', {}, 'We are Christians using AI to build businesses that give us back our time, not to hustle harder or chase wealth, but to have more of our lives for loving God, our families, serving others, and making disciples. Encourage someone today, share what you are learning, and ask for help where you need it.'),
         h('div', { class: 'verse' }, `“${verse}” — ${ref}`),
-        h('a', { class: 'hero-link', href: '#/vision' }, 'Read our vision →')),
+        h('div', { class: 'hero-links' },
+          h('a', { class: 'hero-link', href: '#/tour' }, 'Take the walkthrough →'),
+          h('a', { class: 'hero-link', href: '#/vision' }, 'Read our vision →'))),
 
       h('div', { class: 'stats' },
         h('div', { class: 'stat' }, h('b', {}, state.users.size), h('span', {}, 'members')),
@@ -978,6 +983,128 @@ function visionContent() {
           h('li', {}, h('strong', {}, 'The ends of the earth'), h('span', {}, 'Every nation'))),
         h('p', {}, 'Full-time ministry is not a requirement for anyone in ACE. But ultimately we are all focused on making disciples: raising up people who love Jesus and want to pursue God.'),
         h('div', { class: 'verse' }, '“You will be my witnesses in Jerusalem and in all Judea and Samaria, and to the end of the earth.” — Acts 1:8')));
+}
+
+// ---------- start here: a walkthrough of the vision ----------
+
+// Each step explains part of the vision and the place in ACE that serves it.
+const TOUR = [
+  {
+    icon: '✝', kicker: 'Welcome to ACE', title: 'AI Christian Entrepreneurs',
+    body: [
+      'ACE is a small, private group of Christians using AI to build businesses.',
+      'Not to hustle harder or chase wealth, but to give us back our time: for loving God, our families, and making disciples.',
+    ],
+    verse: '“Seek first the kingdom of God and his righteousness.” — Matthew 6:33',
+  },
+  {
+    icon: '⏳', kicker: 'The heart of it', title: 'Fewer hours, not more',
+    body: [
+      'Many of us feel called to ministry but spend most of our hours earning a living. AI has changed what one person can build.',
+      'The goal is businesses that run with less of our time. Success here is measured in time given back, not in a bigger number.',
+    ],
+    note: 'This is not hustle culture, and no venture is worth losing time with the Lord or your family. Sabbath rest is part of the plan.',
+  },
+  {
+    icon: '#', kicker: 'Encourage one another', title: 'Channels',
+    body: [
+      'Group conversations for the whole network: #encouragement for scripture and wins, #prayer-requests to pray for one another by name, #ai-tools-and-content to pass on what’s working, and more.',
+      'Type @ and someone’s name to get their attention. They’ll get a notification.',
+    ],
+    action: ['Open the channels', '#/chat'],
+  },
+  {
+    icon: '✉', kicker: 'Go deeper', title: 'Private messages',
+    body: ['Message any member one-on-one: to ask a question, follow up after a call, or pray together. Only the two of you can see it.'],
+    action: ['See members', '#/members'],
+  },
+  {
+    icon: '◆', kicker: 'Build together', title: 'Projects',
+    body: [
+      'Share what you’re building and what help you need. Others can tap “I can help”, comment, and message you.',
+      'Iron sharpens iron: offering your skills to someone else’s venture is part of the vision too.',
+    ],
+    action: ['Browse projects', '#/projects'],
+  },
+  {
+    icon: '▲', kicker: 'Learn from each other', title: 'What’s working',
+    body: [
+      'Members share businesses that are working, including hours per week and where the freed-up time goes, so we can learn what gives back the most time.',
+      'Blueprints walk through the structure of a working AI business, step by step.',
+    ],
+    action: ['See what’s working', '#/working'],
+  },
+  {
+    icon: '☏', kicker: 'Gather', title: 'Community calls',
+    body: [
+      'Every week we meet to pray, celebrate wins, learn an AI tool together, and stay accountable.',
+      'RSVP from the Calls page and tap Join call when it starts. You’ll get a reminder 15 minutes before.',
+    ],
+    action: ['See the next call', '#/calls'],
+  },
+  {
+    icon: '✦', kicker: 'Shape the network', title: 'Suggestions',
+    body: ['Have an idea for something we could do together? Post it, vote for the ideas you want, and see what’s planned.'],
+    action: ['Open suggestions', '#/suggestions'],
+  },
+  {
+    icon: '🌍', kicker: 'Where it all leads', title: 'His kingdom, here and to the ends of the earth',
+    body: [
+      'Freed-up time is for our families, and above all for enjoying the Lord, pursuing Him, and seeing His kingdom built: in LA Metro, across the U.S., and to the ends of the earth.',
+      'Full-time ministry isn’t a requirement for anyone. But we are all ultimately focused on making disciples: raising up people who love Jesus and want to pursue God.',
+    ],
+    verse: '“You will be my witnesses … to the end of the earth.” — Acts 1:8',
+  },
+  {
+    icon: '✓', kicker: 'Your next steps', title: 'Get settled in', checklist: true,
+  },
+];
+
+function tourChecklist() {
+  const first = state.channels.find((c) => c.name === 'general') ?? state.channels[0];
+  const me = state.me;
+  const items = [
+    ['Fill out your profile', Boolean(me.headline || me.bio || me.skills || me.ministry), () => openProfileEditor()],
+    ['Say hello in #general', false, () => first && go(roomHash(first.room))],
+    ['RSVP to the next community call', (state.calls || []).some((c) => c.occurrences[0]?.rsvps.includes(me.id)), () => go('#/calls')],
+    ['Put ACE on your home screen', isStandalone(), () => installApp()],
+    ['Turn on notifications', pushState === 'on', () => openNotificationSettings()],
+    ['Read the full vision', false, () => go('#/vision')],
+  ];
+  return h('ul', { class: 'tour-checklist' }, items.map(([label, done, act]) => h('li', { class: done ? 'done' : '' },
+    h('span', { class: 'tick', 'aria-hidden': 'true' }, done ? '✓' : ''),
+    h('span', { class: 'grow' }, label),
+    done ? h('span', { class: 'small muted' }, 'Done') : h('button', { class: 'btn small', onclick: act }, 'Go'))));
+}
+
+function renderTour(stepIndex = 0) {
+  const i = Math.min(stepIndex, TOUR.length - 1);
+  const step = TOUR[i];
+  const last = i === TOUR.length - 1;
+  const goStep = (n) => go(`#/tour/${n + 1}`);
+  return [
+    topbar('Start here', 'A walkthrough of the vision and how ACE works'),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner tour' },
+      h('div', { class: 'tour-progress', 'aria-label': `Step ${i + 1} of ${TOUR.length}` },
+        TOUR.map((_, n) => h('button', {
+          class: `tour-dot ${n === i ? 'on' : ''} ${n < i ? 'seen' : ''}`,
+          'aria-label': `Step ${n + 1}: ${TOUR[n].title}`, onclick: () => goStep(n),
+        }))),
+      h('article', { class: 'tour-card' },
+        h('div', { class: 'tour-step-head' },
+          h('span', { class: 'tour-icon', 'aria-hidden': 'true' }, step.icon),
+          h('div', {}, h('div', { class: 'tour-kicker' }, `${i + 1} of ${TOUR.length} · ${step.kicker}`), h('h2', { class: 'serif' }, step.title))),
+        (step.body || []).map((p) => h('p', {}, p)),
+        step.note && h('p', { class: 'tour-note' }, step.note),
+        step.verse && h('div', { class: 'tour-verse' }, step.verse),
+        step.checklist && [h('p', {}, 'A few things that will help you get the most out of ACE:'), tourChecklist()],
+        step.action && h('a', { class: 'btn', href: step.action[1] }, `${step.action[0]} →`)),
+      h('div', { class: 'tour-nav' },
+        i > 0 ? h('button', { class: 'btn ghost', onclick: () => goStep(i - 1) }, '← Back') : h('span'),
+        last
+          ? h('a', { class: 'btn primary', href: '#/home' }, 'Finish')
+          : h('button', { class: 'btn primary', onclick: () => goStep(i + 1) }, i === 0 ? 'Start the walkthrough →' : 'Next →')))),
+  ];
 }
 
 // ---------- rooms (channels + DMs) ----------
@@ -2126,13 +2253,14 @@ function openProfileEditor(isNew = false) {
       field('Ministry focus', h('input', { type: 'text', name: 'ministry', maxlength: 300, value: me.ministry, placeholder: 'e.g. College discipleship, church planting in Ohio' }), 'Where do you want your freed-up time to go?'),
     ], {
       submitLabel: 'Save profile',
-      extra: isNew ? [h('button', { type: 'button', class: 'btn ghost', onclick: () => close() }, 'Skip for now')] : [],
+      extra: isNew ? [h('button', { type: 'button', class: 'btn ghost', onclick: () => { close(); go('#/tour'); } }, 'Skip for now')] : [],
       onSubmit: async (values) => {
         const { user } = await api('/api/me', { method: 'PATCH', body: values });
         state.me = user;
         state.users.set(user.id, user);
         close();
-        renderShell();
+        // New members continue into the walkthrough of the vision.
+        if (isNew) go('#/tour'); else renderShell();
         toast('Profile saved');
       },
     })));
