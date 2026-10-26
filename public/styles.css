@@ -284,7 +284,7 @@ textarea { resize: vertical; min-height: 80px; }
 .tour-page { padding: 0 !important; background: #0d1322; overflow: hidden !important; }
 .tour-scene { position: relative; height: 100%; min-height: 520px; color: #e9ecf5; overflow: hidden; }
 .scene-stage {
-  position: absolute; inset: 0; perspective: 2000px; perspective-origin: 50% 42%; overflow: hidden;
+  position: absolute; inset: 0; perspective: 900px; perspective-origin: 50% 42%; overflow: hidden;
   touch-action: none; user-select: none; cursor: grab;
   background: radial-gradient(1200px 600px at 50% 38%, #24345e 0%, #121a2f 45%, #0b1120 100%);
 }
@@ -299,9 +299,9 @@ textarea { resize: vertical; min-height: 80px; }
     radial-gradient(2px 2px at 30% 8%, rgba(255, 255, 255, .4), transparent),
     radial-gradient(1.5px 1.5px at 90% 34%, rgba(255, 255, 255, .3), transparent);
 }
-.world { position: absolute; left: 50%; top: 46%; width: 0; height: 0; transform-style: preserve-3d; }
+.world { position: absolute; left: 50%; top: 46%; width: 0; height: 0; transform-style: preserve-3d; will-change: transform; }
 
-.stop { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+.stop { position: absolute; left: 0; top: 0; transform-style: preserve-3d; will-change: transform, opacity; }
 .stop-card {
   position: absolute; left: 0; top: 0; width: min(540px, calc(100vw - 48px)); transform: translate(-30%, -50%);
   border-radius: 22px; padding: 24px 26px;
@@ -321,25 +321,24 @@ textarea { resize: vertical; min-height: 80px; }
 .tour-action { width: fit-content; background: rgba(255, 255, 255, .08); color: #fff; border-color: rgba(255, 255, 255, .2); }
 .tour-action:hover { background: rgba(255, 255, 255, .16); }
 
-/* The room: a round floor that turns beneath us, pillars around the walls */
-.room-floor {
-  position: absolute; left: 50%; top: 66%; width: 1700px; height: 1700px; margin: -850px 0 0 -850px; border-radius: 50%; pointer-events: none;
+/* The ground: one tilted plane whose grid scrolls toward us as we travel */
+.scene-floor {
+  position: absolute; left: -60%; right: -60%; top: 50%; height: 660px; transform-origin: 50% 0; transform: rotateX(80deg);
+  pointer-events: none;
   background:
-    radial-gradient(circle, rgba(232, 176, 75, .32) 0 6%, transparent 6.4%),
-    repeating-radial-gradient(circle, transparent 0 68px, rgba(120, 150, 230, .2) 69px 70px),
-    repeating-conic-gradient(from 18deg, rgba(232, 176, 75, .2) 0 .6deg, transparent .6deg 36deg),
-    radial-gradient(circle, #23335c, #121a30 70%);
-  -webkit-mask-image: radial-gradient(circle, #000 45%, transparent 70%);
-  mask-image: radial-gradient(circle, #000 45%, transparent 70%);
+    linear-gradient(90deg, transparent 49.2%, rgba(255, 230, 170, .9) 50%, transparent 50.8%),
+    linear-gradient(90deg, transparent 46%, rgba(232, 176, 75, .18) 50%, transparent 54%),
+    repeating-linear-gradient(90deg, rgba(120, 150, 230, .22) 0 1px, transparent 1px 90px),
+    repeating-linear-gradient(0deg, rgba(120, 150, 230, .22) 0 1px, transparent 1px 90px);
+  -webkit-mask-image: linear-gradient(transparent, #000 35%);
+  mask-image: linear-gradient(transparent, #000 35%);
 }
-.pillar {
-  position: absolute; left: 0; top: 0; width: 70px; height: 1300px; pointer-events: none; backface-visibility: hidden;
-  background: linear-gradient(90deg, #121a30, #2c3d6c 45%, #3b5088 55%, #18223e);
-  -webkit-mask-image: linear-gradient(transparent, #000 25%, #000 70%, transparent);
-  mask-image: linear-gradient(transparent, #000 25%, #000 70%, transparent);
+.lantern { position: absolute; left: 0; top: 0; width: 10px; height: 180px; pointer-events: none; transition: opacity .4s; }
+.lantern::before { content: ''; position: absolute; inset: 20px 4px 0; background: linear-gradient(#3a4a78, #1b2645); border-radius: 2px; }
+.lantern::after {
+  content: ''; position: absolute; left: -11px; top: -10px; width: 32px; height: 32px; border-radius: 50%;
+  background: radial-gradient(circle, #fff3cf 0%, #e8b04b 40%, rgba(232, 176, 75, 0) 72%); animation: flicker 4s ease-in-out infinite;
 }
-.pillar::after { content: ''; position: absolute; left: 50%; top: 32%; width: 26px; height: 26px; margin-left: -13px; border-radius: 50%;
-  background: radial-gradient(circle, #fff3cf 0%, #e8b04b 40%, rgba(232, 176, 75, 0) 72%); animation: flicker 4s ease-in-out infinite; }
 @keyframes flicker { 50% { opacity: .75; transform: scale(.92); } }
 .mote { position: absolute; left: 0; top: 0; width: 5px; height: 5px; border-radius: 50%; background: #f4d48a; box-shadow: 0 0 10px #e8b04b; pointer-events: none; }
 
@@ -420,32 +419,26 @@ textarea { resize: vertical; min-height: 80px; }
 .hero-links { display: flex; gap: 18px; flex-wrap: wrap; }
 
 @media (max-width: 760px) {
-  .scene-stage { perspective: 1600px; perspective-origin: 50% 40%; }
+  .scene-stage { perspective: 700px; perspective-origin: 50% 40%; }
   .world { top: 50%; }
-  .room-floor { width: 1300px; height: 1300px; margin: -650px 0 0 -650px; top: 64%; }
-  .pillar { width: 44px; }
+  .scene-floor { height: 520px; }
   .stop-card {
     width: calc(100vw - 36px); transform: translate(-50%, -38%); padding: 18px 18px; border-radius: 20px;
   }
-  .stop-body { gap: 9px; max-height: calc(100dvh - 480px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+  .stop-body { gap: 9px; max-height: calc(100dvh - 380px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
   .stop-card p { font-size: 14.5px; line-height: 1.55; }
   .stop-card h2 { font-size: 21px; }
-  /* On phones the icon sits inside the top of the card */
-  .stop-art { position: static; transform: none; display: flex; justify-content: center; margin: -4px 0 10px; }
-  .stop-art .cube-scene { --s: 52px; }
-  .stop-art .cube-shadow { margin-top: 6px; height: 8px; }
-  .stop-art .orbit-scene { width: 220px; height: 220px; margin: -62px 0 -66px; transform: scale(.48); }
+  .stop-art { right: auto; left: 50%; top: 4px; transform: translate(-50%, -100%) scale(.5); transform-origin: 50% 100%; }
   .stop-card .tour-checklist li { padding: 7px 10px; }
   .tour-hint { display: none; }
 }
 @media (max-height: 720px) and (max-width: 760px) {
   .stop-card { transform: translate(-50%, -34%); }
   .stop-card p { font-size: 13.5px; }
-  .stop-body { max-height: calc(100dvh - 420px); }
-  .stop-art .cube-scene { --s: 40px; }
+  .stop-art { transform: translate(-50%, -100%) scale(.4); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cube, .cube-shadow, .orbit-ring, .pillar::after { animation: none; }
+  .cube, .cube-shadow, .orbit-ring, .lantern::after { animation: none; }
 }
 
 /* ---------- in-person workspace ---------- */

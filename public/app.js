@@ -1105,14 +1105,16 @@ let tourInput = null; // the open walkthrough's controls, for the keyboard handl
 // One continuous 3D scene: a lit path the camera travels down, with a stop for each part of the vision.
 function renderTour(stepIndex = 0) {
   const count = TOUR.length;
-  const STEP = 360 / count; // degrees between stops around the room
+  const GAP = 1500; // distance between stops along the path
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
   let target = Math.min(stepIndex, count - 1);
-  let p = target; // where we are facing, in stops
+  let p = target; // the camera's position along the path, in stops
   let shown = -1;
   let running = false;
   let wide = true;
-  let radius = 1400;
+
+  const stationX = (i) => (wide ? (i % 2 ? 1 : -1) * 260 : 0);
+  const stationY = (i) => (wide ? [0, -30, 20, -10][i % 4] : 0);
 
   const stations = TOUR.map((step, i) => {
     const card = h('article', { class: 'stop-card', 'aria-label': `${i + 1} of ${count}: ${step.title}` },
@@ -1127,16 +1129,15 @@ function renderTour(stepIndex = 0) {
         step.action && h('a', { class: 'btn tour-action', href: step.action[1] }, `${step.action[0]} →`)));
     return h('div', { class: 'stop' }, card);
   });
-  // One round room: the stops hang on its walls, with pillars between them and light drifting in the air.
-  const floor = h('div', { class: 'room-floor' });
-  const pillars = TOUR.map(() => h('div', { class: 'pillar' }));
-  const motes = Array.from({ length: 40 }, () => ({
-    el: h('div', { class: 'mote' }), a: Math.random() * 360, r: 0.35 + Math.random() * 0.55, y: (Math.random() - 0.6) * 700,
+  // Lanterns line the path; the ground itself is one plane that scrolls beneath us.
+  const floor = h('div', { class: 'scene-floor' });
+  const lanterns = TOUR.flatMap(() => [h('div', { class: 'lantern' }), h('div', { class: 'lantern' })]);
+  const motes = Array.from({ length: 46 }, () => ({
+    el: h('div', { class: 'mote' }),
+    x: (Math.random() - 0.5) * 2400, y: (Math.random() - 0.7) * 900, z: -Math.random() * GAP * (count + 0.5) + GAP * 0.4,
   }));
-  // The walls get their own layer behind the stops, so the browser never has to depth-sort them together.
-  const walls = h('div', { class: 'world' }, pillars, motes.map((m) => m.el));
-  const world = h('div', { class: 'world' }, stations);
-  const stage = h('div', { class: 'scene-stage' }, h('div', { class: 'scene-sky' }), floor, walls, world);
+  const world = h('div', { class: 'world' }, lanterns, motes.map((m) => m.el), stations);
+  const stage = h('div', { class: 'scene-stage' }, h('div', { class: 'scene-sky' }), floor, world);
 
   const segments = TOUR.map((_, i) => h('button', {
     class: 'tour-seg', 'aria-label': `Go to stop ${i + 1}: ${TOUR[i].title}`, onclick: () => goTo(i),
@@ -1149,44 +1150,45 @@ function renderTour(stepIndex = 0) {
 
   function placeStatic() {
     wide = stage.clientWidth > 760;
-    // Big enough that neighbouring stops sit just at the edges of view.
-    radius = wide ? 1200 : Math.max(480, stage.clientWidth * 1.45);
     stations.forEach((el, i) => {
-      el.style.transform = `rotateY(${-i * STEP}deg) translateZ(${-radius}px)`;
+      el.style.transform = `translate3d(${stationX(i)}px, ${stationY(i)}px, ${-i * GAP}px)`;
     });
-    pillars.forEach((el, i) => {
-      el.style.transform = `rotateY(${-(i + 0.5) * STEP}deg) translateZ(${-radius * 1.02}px) translate(-50%, -50%)`;
+    lanterns.forEach((el, k) => {
+      const i = Math.floor(k / 2);
+      const side = k % 2 ? 1 : -1;
+      el.style.transform = `translate3d(${stationX(i) * 0.6 + side * (wide ? 520 : 230)}px, ${wide ? 150 : 170}px, ${-i * GAP - GAP * 0.25}px)`;
     });
-    motes.forEach((m) => {
-      m.el.style.transform = `rotateY(${-m.a}deg) translateZ(${-radius * m.r}px) translateY(${m.y}px)`;
-    });
+    motes.forEach((m) => { m.el.style.transform = `translate3d(${m.x}px, ${m.y}px, ${m.z}px)`; });
   }
 
-  // Stands in the middle of the room facing stop p. Between stops we step back a little,
-  // so turning shows more of the room, then step in again.
+  const smooth = (t) => t * t * (3 - 2 * t);
+
+  // Moves the camera to position p and fades things that are behind it or far ahead.
   function draw() {
-    const t = p - Math.floor(p);
-    const stepBack = Math.sin(Math.PI * t) * (wide ? 520 : 260);
-    world.style.transform = walls.style.transform = `translateZ(${radius - stepBack}px) rotateY(${p * STEP}deg)`;
-    floor.style.transform = `rotateX(82deg) rotateZ(${-p * STEP}deg) scale(${1 - stepBack / 4000})`;
+    const i0 = Math.floor(p);
+    const t = p - i0;
+    const i1 = Math.min(count - 1, i0 + 1);
+    const camX = stationX(i0) + (stationX(i1) - stationX(i0)) * smooth(t);
+    const camY = stationY(i0) + (stationY(i1) - stationY(i0)) * smooth(t);
+    // Turn slightly toward the next stop while traveling, like walking a winding path.
+    const turn = wide ? Math.sin(Math.PI * t) * Math.sign(stationX(i1) - stationX(i0)) * -9 : 0;
+    world.style.transform = `rotateY(${turn}deg) translate3d(${-camX}px, ${-camY}px, ${p * GAP}px)`;
 
     stations.forEach((el, i) => {
-      let d = Math.abs(i - p);
-      d = Math.min(d, count - d); // around the circle
-      const opacity = d > 2.6 ? 0 : Math.max(0.12, 1 - d * 0.55);
-      el.firstChild.style.opacity = String(opacity); // on the card: opacity on the 3D stop would flatten it
-      el.style.visibility = opacity === 0 ? 'hidden' : 'visible';
-      const near = d < 0.35;
+      const d = i - p; // > 0: ahead of us, < 0: already passed
+      const opacity = d < 0 ? Math.max(0, 1 + d * 2.6) : Math.max(0, 1 - d * 0.45);
+      el.style.opacity = String(opacity);
+      el.style.visibility = opacity < 0.02 ? 'hidden' : 'visible';
+      const near = Math.abs(d) < 0.35;
       el.classList.toggle('near', near);
       el.inert = !near;
     });
-    // Only the part of the room in front of us is drawn.
-    const ahead = (deg) => {
-      const d = Math.abs((((deg - p * STEP) % 360) + 540) % 360 - 180);
-      return d < 100;
-    };
-    pillars.forEach((el, i) => { el.style.visibility = ahead((i + 0.5) * STEP) ? 'visible' : 'hidden'; });
-    motes.forEach((m) => { m.el.style.visibility = ahead(m.a) ? 'visible' : 'hidden'; });
+    floor.style.backgroundPosition = `${-camX * 0.5}px ${p * GAP * 0.4}px`;
+    lanterns.forEach((el, k) => { el.style.opacity = String(Math.floor(k / 2) - p < -0.1 ? 0 : 1); });
+    motes.forEach((m) => {
+      const rel = m.z + p * GAP;
+      m.el.style.opacity = rel > 300 ? '0' : rel < -GAP * 3 ? '0' : '1';
+    });
     segments.forEach((seg, i) => {
       seg.firstChild.style.width = `${Math.max(0, Math.min(1, p - i + 1)) * 100}%`;
     });
@@ -1198,8 +1200,8 @@ function renderTour(stepIndex = 0) {
       const tab = tabs[nearest];
       tabRow.scrollTo({ left: tab.offsetLeft - (tabRow.clientWidth - tab.offsetWidth) / 2, behavior: reduceMotion ? 'auto' : 'smooth' });
       back.style.visibility = nearest === 0 ? 'hidden' : 'visible';
-      next.textContent = nearest === 0 ? 'Step inside →' : nearest === count - 1 ? 'Finish' : 'Next →';
-      hint.textContent = wide ? 'Scroll, drag, or use the arrow keys to turn around the room' : 'Swipe to turn around the room';
+      next.textContent = nearest === 0 ? 'Begin the journey →' : nearest === count - 1 ? 'Finish' : 'Next →';
+      hint.textContent = wide ? 'Scroll, drag, or use the arrow keys to move along the path' : 'Swipe to move along the path';
       history.replaceState(null, '', `#/tour/${nearest + 1}`);
       state.route = parseRoute();
     }
@@ -1255,7 +1257,7 @@ function renderTour(stepIndex = 0) {
     if (!drag) return;
     const dx = e.clientX - drag.x;
     const dy = e.clientY - drag.y;
-    const amount = (Math.abs(dx) > Math.abs(dy) ? -dx : -dy) / (wide ? 520 : 260);
+    const amount = (Math.abs(dx) > Math.abs(dy) ? -dx : -dy) / (wide ? 520 : 300);
     target = Math.max(0, Math.min(count - 1, drag.from + amount));
     kick();
   });
