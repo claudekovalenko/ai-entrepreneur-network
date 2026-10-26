@@ -249,7 +249,12 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
   app.innerHTML = '';
   const joining = mode === 'join' || mode === 'setup' || mode === 'code';
   const authError = h('p', { class: `error-text ${errorMessage ? '' : 'hidden'}`, role: 'alert' }, errorMessage);
-  const codeInput = mode === 'code' && h('input', { type: 'text', id: 'invite-code', name: 'inviteCode', required: true, autocomplete: 'off', autocapitalize: 'none' });
+  // From the shareable join link the code is already known, so the field stays hidden.
+  const presetCode = mode === 'code' ? invite?.code : null;
+  const codeInput = mode === 'code' && h('input', {
+    type: presetCode ? 'hidden' : 'text', id: 'invite-code', name: 'inviteCode', required: !presetCode,
+    autocomplete: 'off', autocapitalize: 'none', value: presetCode,
+  });
   const fields = joining
     ? [
         field('Full name', h('input', { type: 'text', name: 'name', required: true, autocomplete: 'name', value: invite?.name })),
@@ -262,12 +267,12 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
       ];
   const heading = {
     login: 'Welcome back', join: `You’re invited${invite?.name ? `, ${invite.name.split(' ')[0]}` : ''}`,
-    code: 'Join with your invite code', setup: 'Set up ACE',
+    code: presetCode ? 'You’re invited to ACE' : 'Join with your invite code', setup: 'Set up ACE',
   }[mode];
   const intro = {
     login: 'Sign in to continue the conversation.',
     join: 'Someone in ACE invited you personally. Create your account to join.',
-    code: 'Enter the invite code you were given, then create your account.',
+    code: presetCode ? 'Create your account to join. It only takes a minute.' : 'Enter the invite code you were given, then create your account.',
     setup: 'You’re the first one here. Create the admin account, then invite members one by one.',
   }[mode];
   const google = codeInput
@@ -301,7 +306,7 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
         h('h2', { class: 'serif' }, heading),
         h('p', { class: 'muted' }, intro),
         authError,
-        codeInput && field('Invite code', codeInput, 'From the person who invited you'),
+        codeInput && (presetCode ? codeInput : field('Invite code', codeInput, 'From the person who invited you')),
         google,
         google && h('div', { class: 'or' }, joining ? 'or sign up with email' : 'or sign in with email'),
         form(fields, {
@@ -321,7 +326,7 @@ function renderAuth(mode = 'login', errorMessage = '', invite = null) {
           state.config.codeEnabled ? [' or ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderAuth('code'); } }, 'join with an invite code'), '.'] : '.'),
         mode === 'code' && h('p', { class: 'auth-switch muted small' },
           'Already a member? ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); renderAuth('login'); } }, 'Sign in'))))));
-  (codeInput || app.querySelector('input'))?.focus();
+  ((presetCode ? null : codeInput) || app.querySelector('input:not([type=hidden])'))?.focus();
 }
 
 // Opens a personal invite link (#/join/<token>).
@@ -1937,11 +1942,14 @@ async function loadInvites() {
   const statusText = { joined: 'Joined', expired: 'Expired', cancelled: 'Cancelled' };
   const codeCard = h('div', { class: 'card code-card' },
     h('div', { class: 'grow' },
-      h('strong', {}, 'Group invite code'),
+      h('strong', {}, 'Group join link'),
       groupCode
-        ? h('div', { class: 'small muted' }, 'Anyone with this code can join. ', h('code', { class: 'invite-code-value' }, groupCode))
+        ? [h('div', { class: 'small muted' }, 'Anyone with this link can join. No code to type, they just create an account.'),
+          h('div', { class: 'join-link' }, joinLinkFor(groupCode)),
+          h('div', { class: 'small muted' }, 'Code: ', h('code', { class: 'invite-code-value' }, groupCode))]
         : h('div', { class: 'small muted' }, 'Off. People can only join with a personal invite link.')),
-    groupCode && h('button', { class: 'btn small', onclick: () => copyText(groupCode) }, 'Copy'),
+    groupCode && h('button', { class: 'btn small primary', onclick: () => shareJoinLink(groupCode) }, 'Share link'),
+    groupCode && h('button', { class: 'btn small', onclick: () => copyText(joinLinkFor(groupCode)) }, 'Copy link'),
     h('button', { class: 'btn small', onclick: () => editInviteCode(groupCode) }, groupCode ? 'Change' : 'Turn on'),
     groupCode && h('button', { class: 'btn small ghost danger', onclick: async () => {
       if (!confirm('Turn off the group invite code? People who have it won’t be able to join with it anymore. Personal invite links keep working.')) return;
@@ -1972,6 +1980,37 @@ async function loadInvites() {
         h('div', { class: 'grow' }, h('strong', {}, i.name), h('div', { class: 'muted small' }, i.email)),
         h('span', { class: `chip ${i.status === 'joined' ? 'launched' : ''}` }, statusText[i.status]))))),
   ].filter(Boolean));
+}
+
+const joinLinkFor = (code) => `${location.origin}/i/${encodeURIComponent(code)}`;
+
+async function shareJoinLink(code) {
+  const url = joinLinkFor(code);
+  const text = 'You’re invited to ACE (AI Christian Entrepreneurs), a small, private group of Christians using AI to build businesses that give back time for God, family, and ministry. Join here:';
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Join ACE', text, url });
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  }
+  copyText(`${text} ${url}`);
+}
+
+// Opens the shareable join link: checks the code, then shows a simple sign-up form.
+async function openJoinLink(code) {
+  try {
+    await api('/api/me');
+    history.replaceState(null, '', '/#/home');
+    await start();
+    return toast('You’re already a member of ACE.');
+  } catch { /* not signed in */ }
+  let valid = false;
+  try { ({ valid } = await api(`/api/invite-code/check?code=${encodeURIComponent(code)}`)); } catch { /* treated as invalid */ }
+  history.replaceState(null, '', '/');
+  if (!valid) return renderAuth('login', 'That invite link isn’t active anymore. Ask the person who sent it for a new one.');
+  renderAuth('code', '', { code });
 }
 
 function editInviteCode(current) {
@@ -2288,6 +2327,8 @@ document.addEventListener('click', (e) => {
     state.config = { reactions: [] };
   }
   // The public vision page works without an account.
+  const joinCode = /^\/i\/([^/]+)\/?$/.exec(location.pathname)?.[1];
+  if (joinCode) return openJoinLink(decodeURIComponent(joinCode));
   if (/^\/vision\/?$/.test(location.pathname)) {
     try { state.me = (await api('/api/me')).user; } catch { /* not signed in */ }
     return renderPublicVision();

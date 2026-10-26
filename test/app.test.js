@@ -135,6 +135,10 @@ test('the group invite code still works, and admins can change or turn it off', 
   const coded = await client()('/api/auth/register', { method: 'POST', body: { email: 'code1@x.com', password: 'password1', name: 'Coded One', inviteCode: ' Faith ' } });
   assert.equal(coded.status, 200, 'codes are not case-sensitive');
 
+  // The shareable join link checks the code without signing in.
+  assert.equal((await client()('/api/invite-code/check?code=FAITH')).data.valid, true);
+  assert.equal((await client()('/api/invite-code/check?code=wrong')).data.valid, false);
+
   assert.equal((await alice('/api/invite-code', { method: 'PUT', body: { code: 'ab' } })).status, 400);
   await alice('/api/invite-code', { method: 'PUT', body: { code: 'kingdom-2026' } });
   assert.equal((await client()('/api/auth/register', { method: 'POST', body: { email: 'code2@x.com', password: 'password1', name: 'Old Code', inviteCode: 'faith' } })).status, 403);

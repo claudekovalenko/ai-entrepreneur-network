@@ -276,6 +276,11 @@ on('POST', '/api/invites', async ({ db, user, body }) => {
 
 on('GET', '/api/invite-code', async ({ db, env }) => ({ code: await getInviteCode(db, env) }), { admin: true });
 
+// Public: lets the shareable join link (/i/<code>) check the code before showing sign-up.
+on('GET', '/api/invite-code/check', async ({ db, env, url }) => ({
+  valid: await inviteCodeMatches(db, env, url.searchParams.get('code') ?? ''),
+}), { auth: false });
+
 on('PUT', '/api/invite-code', async ({ db, body }) => {
   const code = str(body.code, { max: 60, field: 'Invite code' });
   if (code && code.length < 4) throw new HttpError(400, 'Use at least 4 characters so the code is hard to guess');

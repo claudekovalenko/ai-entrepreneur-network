@@ -97,6 +97,7 @@ textarea { resize: vertical; min-height: 80px; }
 .code-card { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 16px; }
 .code-card .grow { flex: 1; min-width: 200px; }
 .invite-code-value { font-weight: 700; color: var(--text); }
+.join-link { margin: 6px 0 4px; font-size: 13.5px; font-weight: 600; color: var(--accent-strong); overflow-wrap: anywhere; }
 .invite-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; flex-wrap: wrap; }
 .invite-row + .invite-row { border-top: 1px solid var(--border); }
 .invite-row .grow { flex: 1; min-width: 160px; }
