@@ -410,7 +410,7 @@ function renderShell() {
   const navOpen = prevShell?.classList.contains('nav-open');
   const main = renderMain();
   app.innerHTML = '';
-  const inRoom = state.route.name === 'room';
+  const inRoom = state.route.name === 'room' || state.route.name === 'tour';
   app.append(h('div', { class: `shell ${navOpen ? 'nav-open' : ''} ${inRoom ? 'in-room' : ''}`, onclick: (e) => {
     if (e.target.classList.contains('shell')) e.currentTarget.classList.remove('nav-open');
   } }, renderSidebar(), main, renderTabBar()));
@@ -819,7 +819,7 @@ function renderMain() {
   else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
-  const guide = r.name !== 'room' && installGuide();
+  const guide = r.name !== 'room' && r.name !== 'tour' && installGuide();
   if (guide) main.children[0].after(guide);
   return main;
 }
@@ -1099,125 +1099,201 @@ function tourOrbit() {
 }
 
 let tourKeysBound = false;
+let tourInput = null; // the open walkthrough's controls, for the keyboard handler
 
+// One continuous 3D scene: a lit path the camera travels down, with a stop for each part of the vision.
 function renderTour(stepIndex = 0) {
-  let current = Math.min(stepIndex, TOUR.length - 1);
+  const count = TOUR.length;
+  const GAP = 1500; // distance between stops along the path
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let target = Math.min(stepIndex, count - 1);
+  let p = target; // the camera's position along the path, in stops
+  let shown = -1;
+  let running = false;
+  let wide = true;
 
-  const slides = TOUR.map((step, i) => h('article', {
-    class: 'tour-slide', 'aria-roledescription': 'slide', 'aria-label': `${i + 1} of ${TOUR.length}: ${step.title}`,
-  },
-    h('div', { class: 'tour-art' }, i === 8 ? tourOrbit() : tourCube(step.icon)),
-    h('div', { class: 'tour-copy' },
-      h('div', { class: 'tour-kicker' }, `${i + 1} of ${TOUR.length} · ${step.kicker}`),
-      h('h2', { class: 'serif' }, step.title),
-      (step.body || []).map((p) => h('p', {}, p)),
-      step.note && h('p', { class: 'tour-note' }, step.note),
-      step.verse && h('div', { class: 'tour-verse' }, step.verse),
-      step.checklist && [h('p', {}, 'A few things that will help you get the most out of ACE:'), tourChecklist()],
-      step.action && h('a', { class: 'btn tour-action', href: step.action[1] }, `${step.action[0]} →`))));
+  const stationX = (i) => (wide ? (i % 2 ? 1 : -1) * 260 : 0);
+  const stationY = (i) => (wide ? [0, -30, 20, -10][i % 4] : 0);
 
-  const track = h('div', { class: 'tour-track' }, slides);
+  const stations = TOUR.map((step, i) => {
+    const card = h('article', { class: 'stop-card', 'aria-label': `${i + 1} of ${count}: ${step.title}` },
+      h('div', { class: 'stop-art', 'aria-hidden': 'true' }, i === 8 ? tourOrbit() : tourCube(step.icon)),
+      h('div', { class: 'stop-body' },
+        h('div', { class: 'tour-kicker' }, `${i + 1} of ${count} · ${step.kicker}`),
+        h('h2', { class: 'serif' }, step.title),
+        (step.body || []).map((t) => h('p', {}, t)),
+        step.note && h('p', { class: 'tour-note' }, step.note),
+        step.verse && h('div', { class: 'tour-verse' }, step.verse),
+        step.checklist && [h('p', {}, 'A few things that will help you get the most out of ACE:'), tourChecklist()],
+        step.action && h('a', { class: 'btn tour-action', href: step.action[1] }, `${step.action[0]} →`)));
+    return h('div', { class: 'stop' }, card);
+  });
+  // Lanterns line the path; the ground itself is one plane that scrolls beneath us.
+  const floor = h('div', { class: 'scene-floor' });
+  const lanterns = TOUR.flatMap(() => [h('div', { class: 'lantern' }), h('div', { class: 'lantern' })]);
+  const motes = Array.from({ length: 46 }, () => ({
+    el: h('div', { class: 'mote' }),
+    x: (Math.random() - 0.5) * 2400, y: (Math.random() - 0.7) * 900, z: -Math.random() * GAP * (count + 0.5) + GAP * 0.4,
+  }));
+  const world = h('div', { class: 'world' }, lanterns, motes.map((m) => m.el), stations);
+  const stage = h('div', { class: 'scene-stage' }, h('div', { class: 'scene-sky' }), floor, world);
+
   const segments = TOUR.map((_, i) => h('button', {
-    class: 'tour-seg', 'aria-label': `Go to step ${i + 1}: ${TOUR[i].title}`, onclick: () => setStep(i),
+    class: 'tour-seg', 'aria-label': `Go to stop ${i + 1}: ${TOUR[i].title}`, onclick: () => goTo(i),
   }, h('span', { class: 'tour-seg-fill' })));
-  const tabs = TOUR_TABS.map((label, i) => h('button', { class: 'tour-tab', role: 'tab', onclick: () => setStep(i) }, label));
-  const tabRow = h('div', { class: 'tour-tabs', role: 'tablist', 'aria-label': 'Walkthrough sections' }, tabs);
-  const back = h('button', { class: 'btn tour-back', onclick: () => setStep(current - 1) }, '← Back');
-  const next = h('button', { class: 'btn primary tour-next', onclick: () => (current === TOUR.length - 1 ? go('#/home') : setStep(current + 1)) });
-  const stage = h('div', { class: 'tour-stage' }, track);
+  const tabs = TOUR_TABS.map((label, i) => h('button', { class: 'tour-tab', role: 'tab', onclick: () => goTo(i) }, label));
+  const tabRow = h('div', { class: 'tour-tabs', role: 'tablist', 'aria-label': 'Walkthrough stops' }, tabs);
+  const back = h('button', { class: 'btn tour-back', onclick: () => goTo(Math.round(target) - 1) }, '← Back');
+  const next = h('button', { class: 'btn primary tour-next', onclick: () => (Math.round(target) >= count - 1 ? go('#/home') : goTo(Math.round(target) + 1)) });
+  const hint = h('span', { class: 'tour-hint' });
 
-  // Places every slide on a 3D carousel around the current one. `drag` is a fraction of a slide.
-  function layout(drag = 0) {
-    const wide = stage.clientWidth > 700;
-    slides.forEach((slide, i) => {
-      const offset = i - current - drag;
-      const distance = Math.abs(offset);
-      const x = offset * (wide ? 58 : 88);
-      const z = -Math.min(distance, 3) * (wide ? 260 : 200);
-      const rotate = Math.max(-1, Math.min(1, offset)) * -32;
-      slide.style.transform = `translateX(${x}%) translateZ(${z}px) rotateY(${rotate}deg)`;
-      slide.style.opacity = distance > 1.6 ? '0' : String(1 - distance * 0.42);
-      slide.style.zIndex = String(100 - Math.round(distance * 10));
-      slide.classList.toggle('current', i === current && drag === 0);
-      slide.setAttribute('aria-hidden', String(i !== current));
-      slide.inert = i !== current;
+  function placeStatic() {
+    wide = stage.clientWidth > 760;
+    stations.forEach((el, i) => {
+      el.style.transform = `translate3d(${stationX(i)}px, ${stationY(i)}px, ${-i * GAP}px)`;
     });
+    lanterns.forEach((el, k) => {
+      const i = Math.floor(k / 2);
+      const side = k % 2 ? 1 : -1;
+      el.style.transform = `translate3d(${stationX(i) * 0.6 + side * (wide ? 520 : 230)}px, ${wide ? 150 : 170}px, ${-i * GAP - GAP * 0.25}px)`;
+    });
+    motes.forEach((m) => { m.el.style.transform = `translate3d(${m.x}px, ${m.y}px, ${m.z}px)`; });
   }
 
-  function setStep(n) {
-    current = Math.max(0, Math.min(TOUR.length - 1, n));
-    layout(0);
+  const smooth = (t) => t * t * (3 - 2 * t);
+
+  // Moves the camera to position p and fades things that are behind it or far ahead.
+  function draw() {
+    const i0 = Math.floor(p);
+    const t = p - i0;
+    const i1 = Math.min(count - 1, i0 + 1);
+    const camX = stationX(i0) + (stationX(i1) - stationX(i0)) * smooth(t);
+    const camY = stationY(i0) + (stationY(i1) - stationY(i0)) * smooth(t);
+    // Turn slightly toward the next stop while traveling, like walking a winding path.
+    const turn = wide ? Math.sin(Math.PI * t) * Math.sign(stationX(i1) - stationX(i0)) * -9 : 0;
+    world.style.transform = `rotateY(${turn}deg) translate3d(${-camX}px, ${-camY}px, ${p * GAP}px)`;
+
+    stations.forEach((el, i) => {
+      const d = i - p; // > 0: ahead of us, < 0: already passed
+      const opacity = d < 0 ? Math.max(0, 1 + d * 2.6) : Math.max(0, 1 - d * 0.45);
+      el.style.opacity = String(opacity);
+      el.style.visibility = opacity < 0.02 ? 'hidden' : 'visible';
+      const near = Math.abs(d) < 0.35;
+      el.classList.toggle('near', near);
+      el.inert = !near;
+    });
+    floor.style.backgroundPosition = `${-camX * 0.5}px ${p * GAP * 0.4}px`;
+    lanterns.forEach((el, k) => { el.style.opacity = String(Math.floor(k / 2) - p < -0.1 ? 0 : 1); });
+    motes.forEach((m) => {
+      const rel = m.z + p * GAP;
+      m.el.style.opacity = rel > 300 ? '0' : rel < -GAP * 3 ? '0' : '1';
+    });
     segments.forEach((seg, i) => {
-      seg.classList.toggle('done', i < current);
-      seg.classList.toggle('on', i === current);
+      seg.firstChild.style.width = `${Math.max(0, Math.min(1, p - i + 1)) * 100}%`;
     });
-    tabs.forEach((tab, i) => tab.setAttribute('aria-selected', String(i === current)));
-    // Scroll only the tab row (scrollIntoView would also shift the page sideways).
-    const tab = tabs[current];
-    tabRow.scrollTo({ left: tab.offsetLeft - (tabRow.clientWidth - tab.offsetWidth) / 2, behavior: reduceMotion ? 'auto' : 'smooth' });
-    // The stage takes the current card's height, so the controls sit right under it.
-    stage.style.height = `${slides[current].offsetHeight}px`;
-    back.style.visibility = current === 0 ? 'hidden' : 'visible';
-    next.textContent = current === 0 ? 'Start the walkthrough →' : current === TOUR.length - 1 ? 'Finish' : 'Next →';
-    history.replaceState(null, '', `#/tour/${current + 1}`);
-    state.route = parseRoute();
+
+    const nearest = Math.round(p);
+    if (nearest !== shown) {
+      shown = nearest;
+      tabs.forEach((tab, i) => tab.setAttribute('aria-selected', String(i === nearest)));
+      const tab = tabs[nearest];
+      tabRow.scrollTo({ left: tab.offsetLeft - (tabRow.clientWidth - tab.offsetWidth) / 2, behavior: reduceMotion ? 'auto' : 'smooth' });
+      back.style.visibility = nearest === 0 ? 'hidden' : 'visible';
+      next.textContent = nearest === 0 ? 'Begin the journey →' : nearest === count - 1 ? 'Finish' : 'Next →';
+      hint.textContent = wide ? 'Scroll, drag, or use the arrow keys to move along the path' : 'Swipe to move along the path';
+      history.replaceState(null, '', `#/tour/${nearest + 1}`);
+      state.route = parseRoute();
+    }
   }
 
-  // Swipe between slides on phones (and drag with a mouse).
-  let startX = null;
-  let dx = 0;
+  function loop() {
+    if (!stage.isConnected) { running = false; return; }
+    const delta = target - p;
+    p = reduceMotion || Math.abs(delta) < 0.0008 ? target : p + delta * 0.075;
+    draw();
+    if (p !== target) requestAnimationFrame(loop); else running = false;
+  }
+  function kick() {
+    if (!running) { running = true; requestAnimationFrame(loop); }
+  }
+  function goTo(n) {
+    target = Math.max(0, Math.min(count - 1, n));
+    kick();
+  }
+
+  // Settles on a stop after a scroll or drag: even a small push carries on to the next one.
+  function land(from) {
+    const moved = target - from;
+    let stop = Math.round(target);
+    if (stop === Math.round(from) && Math.abs(moved) > 0.12) stop += Math.sign(moved);
+    goTo(stop);
+  }
+
+  // Scrolling moves along the path, then settles.
+  let settleTimer;
+  let wheelFrom = null;
+  stage.addEventListener('wheel', (e) => {
+    const body = e.target.closest('.stop-body');
+    if (body && body.scrollHeight > body.clientHeight + 4) return;
+    e.preventDefault();
+    if (wheelFrom === null) wheelFrom = target;
+    target = Math.max(0, Math.min(count - 1, target + e.deltaY / 650));
+    kick();
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => { land(wheelFrom); wheelFrom = null; }, 220);
+  }, { passive: false });
+
+  // Dragging or swiping (either direction) also moves along the path.
+  let drag = null;
   stage.addEventListener('pointerdown', (e) => {
     if (e.target.closest('a, button, input, textarea')) return;
-    startX = e.clientX;
-    dx = 0;
-    track.classList.add('dragging');
+    const body = e.target.closest('.stop-body');
+    if (body && body.scrollHeight > body.clientHeight + 4 && e.pointerType !== 'mouse') return; // let a long card scroll
+    drag = { x: e.clientX, y: e.clientY, from: target };
+    stage.setPointerCapture(e.pointerId);
   });
   stage.addEventListener('pointermove', (e) => {
-    if (startX !== null) {
-      dx = e.clientX - startX;
-      layout(-dx / Math.max(stage.clientWidth, 1));
-      return;
-    }
-    // Gentle tilt toward the pointer on the front card.
-    if (reduceMotion || e.pointerType !== 'mouse') return;
-    const rect = stage.getBoundingClientRect();
-    track.style.setProperty('--tilt-x', `${((e.clientY - rect.top) / rect.height - 0.5) * -6}deg`);
-    track.style.setProperty('--tilt-y', `${((e.clientX - rect.left) / rect.width - 0.5) * 8}deg`);
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    const amount = (Math.abs(dx) > Math.abs(dy) ? -dx : -dy) / (wide ? 520 : 300);
+    target = Math.max(0, Math.min(count - 1, drag.from + amount));
+    kick();
   });
   const endDrag = () => {
-    if (startX === null) return;
-    startX = null;
-    track.classList.remove('dragging');
-    if (Math.abs(dx) > 50) setStep(current + (dx < 0 ? 1 : -1)); else layout(0);
+    if (!drag) return;
+    const from = drag.from;
+    drag = null;
+    land(from);
   };
   stage.addEventListener('pointerup', endDrag);
   stage.addEventListener('pointercancel', endDrag);
-  stage.addEventListener('pointerleave', () => {
-    endDrag();
-    track.style.setProperty('--tilt-x', '0deg');
-    track.style.setProperty('--tilt-y', '0deg');
-  });
 
+  tourInput = { goTo, current: () => Math.round(target) };
   if (!tourKeysBound) {
     tourKeysBound = true;
     document.addEventListener('keydown', (e) => {
-      if (state.route.name !== 'tour' || document.querySelector('.modal-backdrop') || e.target.closest('input, textarea')) return;
-      if (e.key === 'ArrowRight') document.querySelector('.tour-next')?.click();
-      if (e.key === 'ArrowLeft') document.querySelector('.tour-back')?.click();
+      if (state.route.name !== 'tour' || !tourInput || document.querySelector('.modal-backdrop') || e.target.closest('input, textarea')) return;
+      const forward = ['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key);
+      const backward = ['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key);
+      if (!forward && !backward) return;
+      e.preventDefault();
+      tourInput.goTo(tourInput.current() + (forward ? 1 : -1));
     });
   }
 
-  afterRenderHooks.push(() => setStep(current));
-  window.addEventListener('resize', () => setStep(current), { once: true });
+  afterRenderHooks.push(() => {
+    placeStatic();
+    draw();
+    new ResizeObserver(() => { placeStatic(); draw(); }).observe(stage);
+  });
 
   return [
-    topbar('Start here', 'A walkthrough of the vision and how ACE works'),
-    h('div', { class: 'page tour-page' }, h('div', { class: 'tour3d' },
-      h('div', { class: 'tour-glow g1' }), h('div', { class: 'tour-glow g2' }),
-      h('div', { class: 'tour-top' }, h('div', { class: 'tour-segments' }, segments), tabRow),
+    topbar('Start here', 'A journey through the vision of ACE', [], { back: '#/home' }),
+    h('div', { class: 'page tour-page' }, h('div', { class: 'tour-scene' },
       stage,
-      h('div', { class: 'tour-controls' }, back, h('span', { class: 'tour-hint' }, 'Swipe or use the arrow keys'), next))),
+      h('div', { class: 'tour-top' }, h('div', { class: 'tour-segments' }, segments), tabRow),
+      h('div', { class: 'tour-controls' }, back, hint, next))),
   ];
 }
 
