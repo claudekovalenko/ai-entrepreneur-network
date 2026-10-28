@@ -1068,9 +1068,10 @@ on('POST', '/api/calls/:id/rsvp', async ({ db, user, params, body, emit }) => {
   return { call: await callView(db, c.id) };
 });
 
-// ----- my five: people each member prays for and pursues (private to that member) -----
+// ----- who I'm discipling: people each member prays for and pursues (private to that member) -----
 
-const FIVE_MAX = 5;
+// No set number; this only keeps one list from growing without bound.
+const PEOPLE_MAX = 100;
 
 async function fiveView(db, userId) {
   const [people, meetings] = await db.batch([
@@ -1087,7 +1088,6 @@ async function fiveView(db, userId) {
     people: people.results.map((p) => ({
       id: p.id, name: p.name, context: p.context, notes: p.notes, createdAt: p.created_at, meetings: byPerson.get(p.id) ?? [],
     })),
-    max: FIVE_MAX,
   };
 }
 
@@ -1108,7 +1108,7 @@ on('GET', '/api/five', async ({ db, user }) => fiveView(db, user.id));
 on('POST', '/api/five', async ({ db, user, body }) => {
   const f = personFields(body);
   const { n } = await db.prepare('SELECT COUNT(*) AS n FROM five_people WHERE user_id = ?').bind(user.id).first();
-  if (n >= FIVE_MAX) throw new HttpError(400, `You already have ${FIVE_MAX} people. Remove someone to add someone new.`);
+  if (n >= PEOPLE_MAX) throw new HttpError(400, `Your list can hold up to ${PEOPLE_MAX} people.`);
   await db.prepare('INSERT INTO five_people (user_id, name, context, notes) VALUES (?, ?, ?, ?)')
     .bind(user.id, f.name, f.context, f.notes).run();
   return fiveView(db, user.id);

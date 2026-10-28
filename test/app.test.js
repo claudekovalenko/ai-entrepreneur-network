@@ -558,14 +558,12 @@ test('new members start by experiencing the group; admins mark them committed', 
   assert.ok(boot.data.channels.some((c) => c.name === 'next-steps'), 'the #next-steps channel exists');
 });
 
-test('my five: up to five people, private to each member, with time logged', async () => {
-  for (const name of ['Dan', 'Eli', 'Finn', 'Gus', 'Hal']) {
+test('who I am discipling: a private list with time logged together', async () => {
+  for (const name of ['Dan', 'Eli', 'Finn', 'Gus', 'Hal', 'Ian']) {
     assert.equal((await bob('/api/five', { method: 'POST', body: { name, context: 'client' } })).status, 200);
   }
-  const sixth = await bob('/api/five', { method: 'POST', body: { name: 'Ian' } });
-  assert.equal(sixth.status, 400);
   let five = (await bob('/api/five')).data;
-  assert.equal(five.people.length, 5);
+  assert.equal(five.people.length, 6, 'no fixed number of people');
   const dan = five.people[0];
 
   five = (await bob(`/api/five/${dan.id}/meetings`, { method: 'POST', body: { metOn: '2026-10-20', note: 'Coffee', nextStep: false } })).data;
@@ -583,8 +581,7 @@ test('my five: up to five people, private to each member, with time logged', asy
   five = (await bob(`/api/five/meetings/${meetings[1].id}`, { method: 'DELETE' })).data;
   assert.equal(five.people.find((p) => p.id === dan.id).meetings.length, 1);
   five = (await bob(`/api/five/${dan.id}`, { method: 'DELETE' })).data;
-  assert.equal(five.people.length, 4);
-  assert.equal((await bob('/api/five', { method: 'POST', body: { name: 'Ian' } })).status, 200, 'room for someone new');
+  assert.equal(five.people.length, 5);
 });
 
 test('quarterly gatherings repeat every three months on the same day', () => {

@@ -202,7 +202,7 @@ function parseRoute() {
   if (parts[0] === 'suggestions') return { name: 'suggestions', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
-  if (parts[0] === 'five') return { name: 'five' };
+  if (parts[0] === 'discipling' || parts[0] === 'five') return { name: 'discipling' };
   if (parts[0] === 'tour') return { name: 'tour', step: Math.max(0, (Number(parts[1]) || 1) - 1) };
   if (parts[0] === 'chat') return { name: 'chat' };
   return { name: 'home' };
@@ -362,7 +362,7 @@ function renderSidebar() {
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
       navItem({ href: '#/tour', icon: h('span', { class: 'icon' }, '➜'), label: 'Start here', active: r.name === 'tour' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
-      navItem({ href: '#/five', icon: h('span', { class: 'icon' }, '5'), label: 'My five', active: r.name === 'five', extra: state.five ? h('span', { class: 'small', style: 'opacity:.7' }, `${state.five.people.length} of 5`) : null }),
+      navItem({ href: '#/discipling', icon: h('span', { class: 'icon' }, '♡'), label: 'Who I’m discipling', active: r.name === 'discipling' }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
@@ -818,7 +818,7 @@ function renderMain() {
   else if (r.name === 'chat') main.append(...renderChatList());
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
-  else if (r.name === 'five') main.append(...renderFive());
+  else if (r.name === 'discipling') main.append(...renderDiscipling());
   else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
@@ -862,7 +862,7 @@ function renderHome() {
 
       state.me.stage === 'guest' && guestCard(),
       notifyCard(),
-      fiveSummary(),
+      disciplingSummary(),
       h('div', { class: 'section-head' }, h('h2', {}, 'Next community call'), h('a', { href: '#/calls', class: 'small' }, 'All calls →')),
       nextCall ? callCard(nextCall.call, { limit: 1 })
         : h('div', { class: 'card empty' }, state.me.role === 'admin'
@@ -890,13 +890,12 @@ function guestCard() {
     h('p', { class: 'small muted', style: 'margin:0' }, PLAN.commitment));
 }
 
-// ---------- my five: people to pray for & pursue ----------
+// ---------- who I'm discipling: people each member prays for and pursues ----------
 
-const FIVE_MONTHLY_AIM = 10;
 const thisMonth = () => new Date().toLocaleDateString('en-CA').slice(0, 7);
 const todayLocal = () => new Date().toLocaleDateString('en-CA');
 
-function fiveStats() {
+function disciplingStats() {
   const people = state.five?.people ?? [];
   const meetings = people.flatMap((p) => p.meetings);
   const year = String(new Date().getFullYear());
@@ -907,24 +906,22 @@ function fiveStats() {
   };
 }
 
-function fiveMeter() {
-  const st = fiveStats();
+function disciplingStatsRow() {
+  const st = disciplingStats();
+  const stat = (n, label) => h('div', { class: 'five-stat' }, h('b', {}, `${n}`), h('span', {}, label));
   return h('div', { class: 'five-meter' },
-    h('div', { class: 'five-stat' }, h('b', {}, `${st.people}`, h('small', {}, ' / 5')), h('span', {}, 'people')),
-    h('div', { class: 'five-stat grow' },
-      h('b', {}, `${st.month}`, h('small', {}, ` / ~${FIVE_MONTHLY_AIM}`)), h('span', {}, 'meetings this month'),
-      h('div', { class: 'five-bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': FIVE_MONTHLY_AIM, 'aria-valuenow': st.month },
-        h('span', { style: `width:${Math.min(100, (st.month / FIVE_MONTHLY_AIM) * 100)}%` }))),
-    h('div', { class: 'five-stat' }, h('b', {}, `${st.steps}`), h('span', {}, 'next steps this year')));
+    stat(st.people, st.people === 1 ? 'person' : 'people'),
+    stat(st.month, 'times together this month'),
+    stat(st.steps, 'next steps this year'));
 }
 
-function fiveSummary() {
-  const st = fiveStats();
+function disciplingSummary() {
+  const st = disciplingStats();
   return h('section', { class: 'card five-summary' },
     h('div', { class: 'section-head', style: 'margin:0 0 10px' },
-      h('h2', {}, 'My five'), h('a', { href: '#/five', class: 'small' }, st.people ? 'Open →' : 'Add your five →')),
-    st.people ? fiveMeter()
-      : h('p', { class: 'muted', style: 'margin:0' }, 'Write down five people you’ll pray for and pursue: friends, clients, neighbors. Only you can see your list.'));
+      h('h2', {}, 'Who am I discipling?'), h('a', { href: '#/discipling', class: 'small' }, st.people ? 'Open →' : 'Start your list →')),
+    st.people ? disciplingStatsRow()
+      : h('p', { class: 'muted', style: 'margin:0' }, PLAN.discipling));
 }
 
 async function fiveRequest(path, method, body) {
@@ -938,21 +935,20 @@ async function fiveRequest(path, method, body) {
   }
 }
 
-function renderFive() {
+function renderDiscipling() {
   const people = state.five?.people ?? [];
-  const open = 5 - people.length;
   return [
-    topbar('My five', 'People to pray for & pursue',
-      open > 0 ? [h('button', { class: 'btn primary', onclick: () => openPersonEditor() }, '+ Add someone')] : []),
+    topbar('Who am I discipling?', 'People I’m praying for and pursuing',
+      [h('button', { class: 'btn primary', onclick: () => openPersonEditor() }, '+ Add someone')]),
     h('div', { class: 'page' }, h('div', { class: 'page-inner five-page' },
       h('section', { class: 'card five-intro' },
-        h('p', { style: 'margin:0' }, PLAN.five),
-        fiveMeter(),
+        h('p', { style: 'margin:0' }, PLAN.discipling),
+        people.length > 0 && disciplingStatsRow(),
         h('p', { class: 'small muted', style: 'margin:0' }, '🔒 Only you can see this list. When someone takes a next step toward God, you can choose to tell the story in #next-steps.')),
       h('div', { class: 'five-grid' },
         people.map(personCard),
-        Array.from({ length: open }, (_, i) => h('button', { class: 'card five-empty', onclick: () => openPersonEditor() },
-          h('span', { class: 'five-slot' }, people.length + i + 1), 'Add someone to pray for and pursue'))),
+        h('button', { class: 'card five-empty', onclick: () => openPersonEditor() },
+          h('span', { class: 'five-slot' }, '+'), people.length ? 'Add someone else' : 'Add someone you’re praying for and pursuing')),
       h('section', { class: 'card five-measure' },
         h('h3', { class: 'serif' }, PLAN.measure.question),
         h('p', { class: 'muted' }, PLAN.measure.text),
@@ -995,7 +991,7 @@ function openPersonEditor(p) {
       if (await fiveRequest(p ? `/api/five/${p.id}` : '/api/five', p ? 'PATCH' : 'POST', data)) close();
     },
     extra: p ? [h('button', { type: 'button', class: 'btn ghost danger', onclick: async () => {
-      if (!confirm(`Remove ${p.name} from your five? Your notes about them will be deleted.`)) return;
+      if (!confirm(`Remove ${p.name} from your list? Your notes about them will be deleted.`)) return;
       if (await fiveRequest(`/api/five/${p.id}`, 'DELETE')) close();
     } }, 'Remove')] : [],
   }));
@@ -1044,7 +1040,7 @@ const VISION = {
     ['Share', 'Pass on the tools, prompts, tutorials, and lessons that are working for you, so no one has to learn everything alone.'],
     ['Collaborate', 'Post the project you are building and the help you need. Offer your skills to someone else’s venture.'],
     ['Gather', 'Meet on Zoom every other week and at quarterly gatherings to pray, workshop business problems, celebrate progress, and follow up on what happened since the last call.'],
-    ['Pursue', 'Pray for and pursue five people. Keep track of your time with them in My five, and tell the story in #next-steps when someone takes a step toward God.'],
+    ['Disciple', 'Pray for and pursue the people God has put in your life. Keep track of who you’re discipling, and tell the story in #next-steps when someone takes a step toward God.'],
   ],
   values: [
     ['Kingdom first', 'The business serves the mission, not the other way around. “Seek first the kingdom of God.” (Matthew 6:33)'],
@@ -1089,7 +1085,7 @@ const PLAN = {
     },
   ],
   priorities: ['Time with God and His calling', 'Family and personal life', 'Business'],
-  five: 'Each member works toward five ongoing relationships. Meeting every other week averages about ten meetings a month across the list.',
+  discipling: 'Each of us prays for and pursues people God has put in our lives (clients, neighbors, friends), spending time with them and walking with them toward a next step with God.',
   measure: {
     question: 'Did anyone take a next step toward God?',
     text: 'If so, how? Tell the story. We reflect and celebrate what God is doing, so we notice what is happening now rather than focusing only on future plans.',
@@ -1175,10 +1171,10 @@ function visionContent({ isPublic = false } = {}) {
             planHere(part.here, isPublic)))),
         h('div', { class: 'plan-pair' },
           h('article', { class: 'card plan-part plan-five' },
-            h('div', { class: 'plan-big' }, '5'),
-            h('h3', {}, 'People to pray for & pursue'),
-            h('p', {}, PLAN.five),
-            planHere(['Open My five', '#/five'], isPublic)),
+            h('div', { class: 'plan-big' }, '♡'),
+            h('h3', {}, 'Who am I discipling?'),
+            h('p', {}, PLAN.discipling),
+            planHere(['Open your list', '#/discipling'], isPublic)),
           h('article', { class: 'card plan-part plan-measure' },
             h('div', { class: 'plan-num' }, '04'),
             h('h3', {}, 'The measure'),
@@ -1292,12 +1288,12 @@ const TOUR = [
     action: ['See the next call', '#/calls'],
   },
   {
-    icon: '5', kicker: 'Invest in people', title: 'Five people to pray for & pursue',
+    icon: '♡', kicker: 'Invest in people', title: 'Who am I discipling?',
     body: [
-      'Each of us works toward five ongoing relationships: clients, neighbors, friends. Meeting every other week averages about ten meetings a month across the list.',
-      'Keep your list in My five (only you can see it). The measure: did anyone take a next step toward God? When they do, tell the story in #next-steps.',
+      'Each of us prays for and pursues people God has put in our lives: clients, neighbors, friends.',
+      'Keep your list under Who I’m discipling (only you can see it). The measure: did anyone take a next step toward God? When they do, tell the story in #next-steps.',
     ],
-    action: ['Open My five', '#/five'],
+    action: ['Open your list', '#/discipling'],
   },
   {
     icon: '✦', kicker: 'Shape the network', title: 'Suggestions',
@@ -1324,7 +1320,7 @@ function tourChecklist() {
     ['Fill out your profile', Boolean(me.headline || me.bio || me.skills || me.ministry), () => openProfileEditor()],
     ['Say hello in #general', false, () => first && go(roomHash(first.room))],
     ['RSVP to the next community call', (state.calls || []).some((c) => c.occurrences[0]?.rsvps.includes(me.id)), () => go('#/calls')],
-    ['Add your five people', (state.five?.people.length ?? 0) > 0, () => go('#/five')],
+    ['Add someone you’re discipling', (state.five?.people.length ?? 0) > 0, () => go('#/discipling')],
     ['Put ACE on your home screen', isStandalone(), () => installApp()],
     ['Turn on notifications', pushState === 'on', () => openNotificationSettings()],
     ['Read the full vision', false, () => go('#/vision')],
@@ -1336,7 +1332,7 @@ function tourChecklist() {
 }
 
 // Short labels for the slider tabs at the top of the walkthrough.
-const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Calls', 'My five', 'Suggestions', 'Where it leads', 'Next steps'];
+const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Calls', 'Discipling', 'Suggestions', 'Where it leads', 'Next steps'];
 
 // A slowly turning 3D block with the step's icon on its faces.
 function tourCube(icon) {

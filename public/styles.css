@@ -479,17 +479,14 @@ textarea { resize: vertical; min-height: 80px; }
 /* ---------- my five ---------- */
 .five-summary { margin-top: 16px; }
 .five-meter { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
-.five-stat { display: grid; align-content: start; gap: 2px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); min-width: 110px; }
-.five-stat.grow { flex: 1; min-width: 190px; }
+.five-stat { flex: 1; display: grid; align-content: start; gap: 2px; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); min-width: 110px; }
 .five-stat b { font-size: 22px; font-variant-numeric: tabular-nums; }
 .five-stat b small { font-size: 14px; color: var(--muted); font-weight: 600; }
 .five-stat > span { font-size: 12.5px; color: var(--muted); }
-.five-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 6px; }
-.five-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--gold)); border-radius: inherit; }
 .five-page { display: grid; gap: 16px; }
 @media (max-width: 560px) {
-  .five-meter { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; }
-  .five-stat, .five-stat.grow { min-width: 0; padding: 8px 10px; }
+  .five-meter { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .five-stat { min-width: 0; padding: 8px 10px; }
   .five-stat b { font-size: 19px; }
   .five-stat > span { font-size: 11.5px; line-height: 1.3; }
 }

@@ -195,7 +195,7 @@ const STATEMENTS = [
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (call_id, occurrence, user_id)
   )`,
-  // Each member's five people to pray for and pursue. Private to that member.
+  // People each member is discipling: praying for and pursuing. Private to that member.
   `CREATE TABLE IF NOT EXISTS five_people (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
