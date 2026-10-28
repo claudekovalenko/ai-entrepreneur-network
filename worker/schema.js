@@ -195,6 +195,26 @@ const STATEMENTS = [
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (call_id, occurrence, user_id)
   )`,
+  // Each member's five people to pray for and pursue. Private to that member.
+  `CREATE TABLE IF NOT EXISTS five_people (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    context TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  'CREATE INDEX IF NOT EXISTS five_people_user ON five_people(user_id)',
+  // Times a member met with one of their five, and any next step toward God they saw.
+  `CREATE TABLE IF NOT EXISTS five_meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL REFERENCES five_people(id) ON DELETE CASCADE,
+    met_on TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    next_step INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  'CREATE INDEX IF NOT EXISTS five_meetings_person ON five_meetings(person_id, met_on)',
   // Starter channels, only for a brand-new network.
   `INSERT INTO channels (name, description)
     SELECT column1, column2 FROM (VALUES
@@ -205,12 +225,37 @@ const STATEMENTS = [
       ('ideas', 'Business ideas to test, refine, and pressure-check together'),
       ('wins', 'Launches, first customers, hours given back to ministry'))
     WHERE NOT EXISTS (SELECT 1 FROM channels)`,
+  // Added once to every network (an admin may delete it afterwards): where we tell the
+  // stories of people taking a next step toward God.
+  `INSERT INTO channels (name, description)
+    SELECT 'next-steps', 'Did anyone take a next step toward God? Tell the story so we can celebrate what God is doing.'
+    WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'seeded:next-steps')
+      AND NOT EXISTS (SELECT 1 FROM channels WHERE name = 'next-steps')`,
+  "INSERT OR IGNORE INTO settings (key, value) VALUES ('seeded:next-steps', '1')",
 ];
+
+// Columns added after launch. SQLite has no ADD COLUMN IF NOT EXISTS, so each one is
+// tried and "duplicate column" is ignored.
+const COLUMNS = [
+  // 'guest' while experiencing the group, 'member' once committed for the year.
+  "ALTER TABLE users ADD COLUMN stage TEXT NOT NULL DEFAULT 'member'",
+  'ALTER TABLE users ADD COLUMN committed_on TEXT',
+];
+
+async function addColumns(db) {
+  for (const sql of COLUMNS) {
+    try {
+      await db.prepare(sql).run();
+    } catch (err) {
+      if (!/duplicate column/i.test(String(err?.message))) throw err;
+    }
+  }
+}
 
 let ready = null;
 
 export function ensureSchema(db) {
-  ready ??= db.batch(STATEMENTS.map((sql) => db.prepare(sql))).catch((err) => {
+  ready ??= db.batch(STATEMENTS.map((sql) => db.prepare(sql))).then(() => addColumns(db)).catch((err) => {
     ready = null;
     throw err;
   });

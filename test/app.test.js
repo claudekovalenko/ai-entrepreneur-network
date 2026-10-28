@@ -542,3 +542,53 @@ test('recurring calls keep local wall-clock time across DST', () => {
   const once = { ...call, frequency: 'once' };
   assert.equal(upcomingOccurrences(once, Date.parse('2027-01-01')).length, 0);
 });
+
+test('new members start by experiencing the group; admins mark them committed', async () => {
+  assert.equal((await alice('/api/me')).data.user.stage, 'member', 'the founding admin is a member');
+  const me = (await bob('/api/me')).data.user;
+  assert.equal(me.stage, 'guest');
+  assert.equal((await bob(`/api/users/${me.id}/stage`, { method: 'PATCH', body: { stage: 'member' } })).status, 403);
+  const res = await alice(`/api/users/${me.id}/stage`, { method: 'PATCH', body: { stage: 'member', committedOn: '2026-11-01' } });
+  assert.equal(res.data.user.stage, 'member');
+  assert.equal(res.data.user.committedOn, '2026-11-01');
+  const back = await alice(`/api/users/${me.id}/stage`, { method: 'PATCH', body: { stage: 'guest' } });
+  assert.equal(back.data.user.committedOn, null);
+  const boot = await carol('/api/bootstrap');
+  assert.equal(boot.data.users.find((u) => u.id === me.id).stage, 'guest');
+  assert.ok(boot.data.channels.some((c) => c.name === 'next-steps'), 'the #next-steps channel exists');
+});
+
+test('my five: up to five people, private to each member, with time logged', async () => {
+  for (const name of ['Dan', 'Eli', 'Finn', 'Gus', 'Hal']) {
+    assert.equal((await bob('/api/five', { method: 'POST', body: { name, context: 'client' } })).status, 200);
+  }
+  const sixth = await bob('/api/five', { method: 'POST', body: { name: 'Ian' } });
+  assert.equal(sixth.status, 400);
+  let five = (await bob('/api/five')).data;
+  assert.equal(five.people.length, 5);
+  const dan = five.people[0];
+
+  five = (await bob(`/api/five/${dan.id}/meetings`, { method: 'POST', body: { metOn: '2026-10-20', note: 'Coffee', nextStep: false } })).data;
+  five = (await bob(`/api/five/${dan.id}/meetings`, { method: 'POST', body: { metOn: '2026-10-27', note: 'Asked to read John together', nextStep: true } })).data;
+  const meetings = five.people.find((p) => p.id === dan.id).meetings;
+  assert.deepEqual(meetings.map((m) => [m.metOn, m.nextStep]), [['2026-10-27', true], ['2026-10-20', false]]);
+
+  // Nobody else can see, change, or log against Bob's list.
+  assert.equal((await carol('/api/five')).data.people.length, 0);
+  assert.equal((await carol(`/api/five/${dan.id}`, { method: 'PATCH', body: { name: 'X' } })).status, 404);
+  assert.equal((await carol(`/api/five/${dan.id}/meetings`, { method: 'POST', body: {} })).status, 404);
+  assert.equal((await carol(`/api/five/meetings/${meetings[0].id}`, { method: 'DELETE' })).status, 404);
+  assert.equal((await alice(`/api/five/${dan.id}`, { method: 'DELETE' })).status, 404, 'not even admins');
+
+  five = (await bob(`/api/five/meetings/${meetings[1].id}`, { method: 'DELETE' })).data;
+  assert.equal(five.people.find((p) => p.id === dan.id).meetings.length, 1);
+  five = (await bob(`/api/five/${dan.id}`, { method: 'DELETE' })).data;
+  assert.equal(five.people.length, 4);
+  assert.equal((await bob('/api/five', { method: 'POST', body: { name: 'Ian' } })).status, 200, 'room for someone new');
+});
+
+test('quarterly gatherings repeat every three months on the same day', () => {
+  const call = { start_date: '2026-01-31', start_time: '18:00', timezone: 'America/Los_Angeles', frequency: 'quarterly', duration_min: 180 };
+  const occ = upcomingOccurrences(call, Date.parse('2026-03-01T00:00:00Z'), 3);
+  assert.deepEqual(occ.map((o) => o.occurrence), ['2026-04-30', '2026-07-31', '2026-10-31']);
+});

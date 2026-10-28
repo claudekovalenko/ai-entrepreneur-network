@@ -57,6 +57,7 @@ function sessionCookie(token, maxAge = SESSION_MAX_AGE) {
 const publicUser = (u) => u && ({
   id: u.id, name: u.name, headline: u.headline, bio: u.bio,
   skills: u.skills, ministry: u.ministry, role: u.role, createdAt: u.created_at,
+  stage: u.stage ?? 'member', committedOn: u.committed_on ?? null,
 });
 const privateUser = (u) => ({ ...publicUser(u), email: u.email });
 
@@ -167,7 +168,7 @@ function projectFields(body, existing = {}) {
 
 function callFields(body, existing = {}) {
   const frequency = body.frequency ?? existing.frequency ?? 'weekly';
-  if (!FREQUENCIES.includes(frequency)) throw new HttpError(400, 'Frequency must be weekly, biweekly, or once');
+  if (!FREQUENCIES.includes(frequency)) throw new HttpError(400, 'Frequency must be weekly, biweekly, quarterly, or once');
   const startDate = body.startDate ?? existing.start_date;
   const startTime = body.startTime ?? existing.start_time;
   const timezone = body.timezone ?? existing.timezone ?? 'UTC';
@@ -232,8 +233,9 @@ async function createMember(db, { email, name, passwordHash }, { inviteToken, co
   const invite = n === 0 || codeOk ? null : await claimInvite(db, inviteToken);
   if (n > 0 && !codeOk && !invite) throw new HttpError(403, inviteToken ? INVALID_INVITE : 'That invite code is not valid. Check it with the person who invited you.');
   try {
-    const user = await db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?) RETURNING *')
-      .bind(email, passwordHash, name, n === 0 ? 'admin' : 'member').first();
+    // Everyone but the founding admin starts by experiencing the group before committing for a year.
+    const user = await db.prepare('INSERT INTO users (email, password_hash, name, role, stage) VALUES (?, ?, ?, ?, ?) RETURNING *')
+      .bind(email, passwordHash, name, n === 0 ? 'admin' : 'member', n === 0 ? 'member' : 'guest').first();
     if (invite) await db.prepare('UPDATE invites SET used_by = ? WHERE token = ?').bind(user.id, invite.token).run();
     return user;
   } catch (err) {
@@ -464,6 +466,22 @@ on('PATCH', '/api/users/:id/role', async ({ db, user: me, params, body, emit }) 
   const role = body.role === 'admin' ? 'admin' : 'member';
   if (id === me.id && role !== 'admin') throw new HttpError(400, 'You cannot remove your own admin role');
   const user = await db.prepare('UPDATE users SET role = ? WHERE id = ? RETURNING *').bind(role, id).first();
+  if (!user) throw new HttpError(404, 'Member not found');
+  emit('user:updated', publicUser(user));
+  return { user: publicUser(user) };
+}, { admin: true });
+
+// Moves someone between experiencing the group ('guest') and committed for the year ('member').
+on('PATCH', '/api/users/:id/stage', async ({ db, params, body, emit }) => {
+  const id = intParam(params.id);
+  const stage = body.stage === 'guest' ? 'guest' : 'member';
+  let committedOn = null;
+  if (stage === 'member') {
+    committedOn = str(body.committedOn, { max: 10 }) || new Date().toISOString().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(committedOn)) throw new HttpError(400, 'Commitment date must be a date');
+  }
+  const user = await db.prepare('UPDATE users SET stage = ?, committed_on = ? WHERE id = ? RETURNING *')
+    .bind(stage, committedOn, id).first();
   if (!user) throw new HttpError(404, 'Member not found');
   emit('user:updated', publicUser(user));
   return { user: publicUser(user) };
@@ -1048,6 +1066,82 @@ on('POST', '/api/calls/:id/rsvp', async ({ db, user, params, body, emit }) => {
   await db.prepare(stmt).bind(c.id, occurrence, user.id).run();
   emit('calls:changed', null);
   return { call: await callView(db, c.id) };
+});
+
+// ----- my five: people each member prays for and pursues (private to that member) -----
+
+const FIVE_MAX = 5;
+
+async function fiveView(db, userId) {
+  const [people, meetings] = await db.batch([
+    db.prepare('SELECT * FROM five_people WHERE user_id = ? ORDER BY id').bind(userId),
+    db.prepare(`SELECT m.* FROM five_meetings m JOIN five_people p ON p.id = m.person_id
+      WHERE p.user_id = ? ORDER BY m.met_on DESC, m.id DESC`).bind(userId),
+  ]);
+  const byPerson = new Map();
+  for (const m of meetings.results) {
+    if (!byPerson.has(m.person_id)) byPerson.set(m.person_id, []);
+    byPerson.get(m.person_id).push({ id: m.id, metOn: m.met_on, note: m.note, nextStep: Boolean(m.next_step) });
+  }
+  return {
+    people: people.results.map((p) => ({
+      id: p.id, name: p.name, context: p.context, notes: p.notes, createdAt: p.created_at, meetings: byPerson.get(p.id) ?? [],
+    })),
+    max: FIVE_MAX,
+  };
+}
+
+async function loadMyPerson(db, user, id) {
+  const p = await db.prepare('SELECT * FROM five_people WHERE id = ? AND user_id = ?').bind(intParam(id), user.id).first();
+  if (!p) throw new HttpError(404, 'Person not found');
+  return p;
+}
+
+const personFields = (body, existing = {}) => ({
+  name: str(body.name ?? existing.name, { max: 80, required: true, field: 'Name' }),
+  context: str(body.context ?? existing.context, { max: 200, field: 'How you know them' }),
+  notes: str(body.notes ?? existing.notes, { max: 2000, field: 'Notes' }),
+});
+
+on('GET', '/api/five', async ({ db, user }) => fiveView(db, user.id));
+
+on('POST', '/api/five', async ({ db, user, body }) => {
+  const f = personFields(body);
+  const { n } = await db.prepare('SELECT COUNT(*) AS n FROM five_people WHERE user_id = ?').bind(user.id).first();
+  if (n >= FIVE_MAX) throw new HttpError(400, `You already have ${FIVE_MAX} people. Remove someone to add someone new.`);
+  await db.prepare('INSERT INTO five_people (user_id, name, context, notes) VALUES (?, ?, ?, ?)')
+    .bind(user.id, f.name, f.context, f.notes).run();
+  return fiveView(db, user.id);
+});
+
+on('PATCH', '/api/five/:id', async ({ db, user, params, body }) => {
+  const p = await loadMyPerson(db, user, params.id);
+  const f = personFields(body, p);
+  await db.prepare('UPDATE five_people SET name = ?, context = ?, notes = ? WHERE id = ?').bind(f.name, f.context, f.notes, p.id).run();
+  return fiveView(db, user.id);
+});
+
+on('DELETE', '/api/five/:id', async ({ db, user, params }) => {
+  const p = await loadMyPerson(db, user, params.id);
+  await db.prepare('DELETE FROM five_people WHERE id = ?').bind(p.id).run();
+  return fiveView(db, user.id);
+});
+
+on('POST', '/api/five/:id/meetings', async ({ db, user, params, body }) => {
+  const p = await loadMyPerson(db, user, params.id);
+  const metOn = str(body.metOn, { max: 10 }) || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(metOn)) throw new HttpError(400, 'Date must be a date');
+  const note = str(body.note, { max: 2000, field: 'Note' });
+  await db.prepare('INSERT INTO five_meetings (person_id, met_on, note, next_step) VALUES (?, ?, ?, ?)')
+    .bind(p.id, metOn, note, body.nextStep ? 1 : 0).run();
+  return fiveView(db, user.id);
+});
+
+on('DELETE', '/api/five/meetings/:id', async ({ db, user, params }) => {
+  const { meta } = await db.prepare(`DELETE FROM five_meetings WHERE id = ?
+    AND person_id IN (SELECT id FROM five_people WHERE user_id = ?)`).bind(intParam(params.id), user.id).run();
+  if (!meta.changes) throw new HttpError(404, 'Meeting not found');
+  return fiveView(db, user.id);
 });
 
 // ---------- request handling ----------

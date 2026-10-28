@@ -1,7 +1,7 @@
 // Recurring call math. Calls are stored as a local wall-clock date/time in an
 // IANA timezone so a "Tuesdays at 7pm Central" call stays at 7pm across DST.
 
-const STEP_DAYS = { weekly: 7, biweekly: 14, once: 0 };
+const STEP_DAYS = { weekly: 7, biweekly: 14, quarterly: null, once: 0 };
 
 export const FREQUENCIES = Object.keys(STEP_DAYS);
 
@@ -40,8 +40,16 @@ function addDays(dateStr, days) {
   return new Date(Date.UTC(y, mo - 1, d + days)).toISOString().slice(0, 10);
 }
 
+// The same day of the month, n months later (the last day when that month is shorter).
+function addMonths(dateStr, n) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y, mo - 1 + n + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, mo - 1 + n, Math.min(d, lastDay))).toISOString().slice(0, 10);
+}
+
 // Returns the upcoming occurrences (including one in progress) for a call.
 export function upcomingOccurrences(call, now = Date.now(), count = 3) {
+  if (call.frequency === 'quarterly') return quarterlyOccurrences(call, now, count);
   const step = STEP_DAYS[call.frequency] ?? 7;
   const durationMs = call.duration_min * 60_000;
   const out = [];
@@ -59,6 +67,18 @@ export function upcomingOccurrences(call, now = Date.now(), count = 3) {
     if (ts + durationMs >= now) out.push({ occurrence: date, startsAt: new Date(ts).toISOString() });
     if (step === 0) break;
     date = addDays(date, step);
+  }
+  return out;
+}
+
+// Every three months, counted from the start date so a 31st never drifts to the 28th.
+function quarterlyOccurrences(call, now, count) {
+  const durationMs = call.duration_min * 60_000;
+  const out = [];
+  for (let k = 0; out.length < count && k < 400; k++) {
+    const date = addMonths(call.start_date, k * 3);
+    const ts = zonedToUtc(date, call.start_time, call.timezone);
+    if (ts + durationMs >= now) out.push({ occurrence: date, startsAt: new Date(ts).toISOString() });
   }
   return out;
 }

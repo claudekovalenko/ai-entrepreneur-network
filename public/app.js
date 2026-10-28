@@ -17,7 +17,7 @@ const REVENUE_LABELS = {
   '1k-5k': '$1k–5k/mo', '5k-10k': '$5k–10k/mo', '10k-plus': '$10k+/mo',
 };
 const SUGGESTION_LABELS = { open: 'Open', planned: 'Planned', done: 'Done', 'not-now': 'Not now' };
-const FREQ_LABELS = { weekly: 'Every week', biweekly: 'Every other week', once: 'One time' };
+const FREQ_LABELS = { weekly: 'Every week', biweekly: 'Every other week', quarterly: 'Every three months', once: 'One time' };
 const AVATAR_COLORS = ['#b9802a', '#2c5aa0', '#2f8a5b', '#8a3f8f', '#b3412f', '#1f7a83', '#5b5fc7', '#9a6a1f'];
 
 const state = {
@@ -202,6 +202,7 @@ function parseRoute() {
   if (parts[0] === 'suggestions') return { name: 'suggestions', id: parts[1] && Number(parts[1]) };
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
+  if (parts[0] === 'five') return { name: 'five' };
   if (parts[0] === 'tour') return { name: 'tour', step: Math.max(0, (Number(parts[1]) || 1) - 1) };
   if (parts[0] === 'chat') return { name: 'chat' };
   return { name: 'home' };
@@ -361,6 +362,7 @@ function renderSidebar() {
       navItem({ href: '#/home', icon: h('span', { class: 'icon' }, '⌂'), label: 'Home', active: r.name === 'home' }),
       navItem({ href: '#/tour', icon: h('span', { class: 'icon' }, '➜'), label: 'Start here', active: r.name === 'tour' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
+      navItem({ href: '#/five', icon: h('span', { class: 'icon' }, '5'), label: 'My five', active: r.name === 'five', extra: state.five ? h('span', { class: 'small', style: 'opacity:.7' }, `${state.five.people.length} of 5`) : null }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
@@ -816,6 +818,7 @@ function renderMain() {
   else if (r.name === 'chat') main.append(...renderChatList());
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
+  else if (r.name === 'five') main.append(...renderFive());
   else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
@@ -857,7 +860,9 @@ function renderHome() {
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).length), h('span', {}, 'projects shared')),
         h('div', { class: 'stat' }, h('b', {}, (state.projects || []).filter((p) => p.status === 'launched').length), h('span', {}, 'launched'))),
 
+      state.me.stage === 'guest' && guestCard(),
       notifyCard(),
+      fiveSummary(),
       h('div', { class: 'section-head' }, h('h2', {}, 'Next community call'), h('a', { href: '#/calls', class: 'small' }, 'All calls →')),
       nextCall ? callCard(nextCall.call, { limit: 1 })
         : h('div', { class: 'card empty' }, state.me.role === 'admin'
@@ -876,6 +881,154 @@ function renderHome() {
   ];
 }
 
+// Shown to someone still experiencing the group, before committing for a year.
+function guestCard() {
+  return h('section', { class: 'card guest-card' },
+    h('h2', { class: 'serif' }, 'You’re experiencing the group'),
+    h('p', { class: 'muted' }, 'Come to three calls over the next six weeks and get to know the men here. If the group is a fit, talk with an admin about committing for a year.'),
+    planPath(1),
+    h('p', { class: 'small muted', style: 'margin:0' }, PLAN.commitment));
+}
+
+// ---------- my five: people to pray for & pursue ----------
+
+const FIVE_MONTHLY_AIM = 10;
+const thisMonth = () => new Date().toLocaleDateString('en-CA').slice(0, 7);
+const todayLocal = () => new Date().toLocaleDateString('en-CA');
+
+function fiveStats() {
+  const people = state.five?.people ?? [];
+  const meetings = people.flatMap((p) => p.meetings);
+  const year = String(new Date().getFullYear());
+  return {
+    people: people.length,
+    month: meetings.filter((m) => m.metOn.startsWith(thisMonth())).length,
+    steps: meetings.filter((m) => m.nextStep && m.metOn.startsWith(year)).length,
+  };
+}
+
+function fiveMeter() {
+  const st = fiveStats();
+  return h('div', { class: 'five-meter' },
+    h('div', { class: 'five-stat' }, h('b', {}, `${st.people}`, h('small', {}, ' / 5')), h('span', {}, 'people')),
+    h('div', { class: 'five-stat grow' },
+      h('b', {}, `${st.month}`, h('small', {}, ` / ~${FIVE_MONTHLY_AIM}`)), h('span', {}, 'meetings this month'),
+      h('div', { class: 'five-bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': FIVE_MONTHLY_AIM, 'aria-valuenow': st.month },
+        h('span', { style: `width:${Math.min(100, (st.month / FIVE_MONTHLY_AIM) * 100)}%` }))),
+    h('div', { class: 'five-stat' }, h('b', {}, `${st.steps}`), h('span', {}, 'next steps this year')));
+}
+
+function fiveSummary() {
+  const st = fiveStats();
+  return h('section', { class: 'card five-summary' },
+    h('div', { class: 'section-head', style: 'margin:0 0 10px' },
+      h('h2', {}, 'My five'), h('a', { href: '#/five', class: 'small' }, st.people ? 'Open →' : 'Add your five →')),
+    st.people ? fiveMeter()
+      : h('p', { class: 'muted', style: 'margin:0' }, 'Write down five people you’ll pray for and pursue: friends, clients, neighbors. Only you can see your list.'));
+}
+
+async function fiveRequest(path, method, body) {
+  try {
+    state.five = await api(path, { method, body });
+    renderShell();
+    return true;
+  } catch (err) {
+    toast(err.message, 'error');
+    return false;
+  }
+}
+
+function renderFive() {
+  const people = state.five?.people ?? [];
+  const open = 5 - people.length;
+  return [
+    topbar('My five', 'People to pray for & pursue',
+      open > 0 ? [h('button', { class: 'btn primary', onclick: () => openPersonEditor() }, '+ Add someone')] : []),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner five-page' },
+      h('section', { class: 'card five-intro' },
+        h('p', { style: 'margin:0' }, PLAN.five),
+        fiveMeter(),
+        h('p', { class: 'small muted', style: 'margin:0' }, '🔒 Only you can see this list. When someone takes a next step toward God, you can choose to tell the story in #next-steps.')),
+      h('div', { class: 'five-grid' },
+        people.map(personCard),
+        Array.from({ length: open }, (_, i) => h('button', { class: 'card five-empty', onclick: () => openPersonEditor() },
+          h('span', { class: 'five-slot' }, people.length + i + 1), 'Add someone to pray for and pursue'))),
+      h('section', { class: 'card five-measure' },
+        h('h3', { class: 'serif' }, PLAN.measure.question),
+        h('p', { class: 'muted' }, PLAN.measure.text),
+        h('a', { class: 'btn small', href: nextStepsHash() }, 'Read the stories in #next-steps')))),
+  ];
+}
+
+function personCard(p) {
+  const last = p.meetings[0];
+  const steps = p.meetings.filter((m) => m.nextStep).length;
+  return h('article', { class: 'card person-card' },
+    h('div', { class: 'person-head' },
+      h('div', { class: 'person-initial', 'aria-hidden': 'true' }, p.name.trim()[0]?.toUpperCase() ?? '?'),
+      h('div', { class: 'grow' },
+        h('h3', {}, p.name),
+        p.context && h('div', { class: 'small muted' }, p.context)),
+      h('button', { class: 'btn small ghost', onclick: () => openPersonEditor(p) }, 'Edit')),
+    p.notes && h('p', { class: 'person-notes' }, p.notes),
+    h('div', { class: 'small muted' },
+      last ? `Last met ${shortDate(last.metOn + 'T12:00:00')}` : 'Not met yet',
+      steps ? ` · ${steps} next step${steps > 1 ? 's' : ''} 🙌` : ''),
+    p.meetings.length > 0 && h('ul', { class: 'meet-list' }, p.meetings.slice(0, 3).map((m) => h('li', {},
+      h('span', { class: 'meet-date' }, shortDate(m.metOn + 'T12:00:00')),
+      h('span', { class: 'grow' }, m.nextStep && h('span', { class: 'chip launched' }, 'Next step'), ' ', m.note || h('span', { class: 'muted' }, 'Met')),
+      h('button', { class: 'meet-del', title: 'Delete', 'aria-label': 'Delete this entry', onclick: () => {
+        if (confirm('Delete this entry?')) fiveRequest(`/api/five/meetings/${m.id}`, 'DELETE');
+      } }, '×')))),
+    h('div', { class: 'person-actions' },
+      h('button', { class: 'btn small primary', onclick: () => openMeetingForm(p) }, 'Log time together')));
+}
+
+function openPersonEditor(p) {
+  const close = openModal(p ? `Edit ${p.name}` : 'Add someone', form([
+    field('Name', h('input', { type: 'text', name: 'name', required: true, maxlength: 80, value: p?.name, placeholder: 'First name is fine' })),
+    field('How you know them', h('input', { type: 'text', name: 'context', maxlength: 200, value: p?.context, placeholder: 'e.g. client, neighbor, BNI group, gym' })),
+    field('How to pray for them', h('textarea', { name: 'notes', rows: 3, maxlength: 2000, value: p?.notes, placeholder: 'What’s going on in their life, questions they’re asking, where they are with God…' })),
+  ], {
+    submitLabel: p ? 'Save' : 'Add',
+    onSubmit: async (data) => {
+      if (await fiveRequest(p ? `/api/five/${p.id}` : '/api/five', p ? 'PATCH' : 'POST', data)) close();
+    },
+    extra: p ? [h('button', { type: 'button', class: 'btn ghost danger', onclick: async () => {
+      if (!confirm(`Remove ${p.name} from your five? Your notes about them will be deleted.`)) return;
+      if (await fiveRequest(`/api/five/${p.id}`, 'DELETE')) close();
+    } }, 'Remove')] : [],
+  }));
+}
+
+function openMeetingForm(p) {
+  const share = h('input', { type: 'checkbox', name: 'share', checked: true });
+  const shareRow = h('label', { class: 'check-row hidden' }, share,
+    h('span', {}, 'Share this story in #next-steps', h('span', { class: 'small muted', style: 'display:block' }, 'Leave out last names or anything private.')));
+  const stepBox = h('input', { type: 'checkbox', name: 'nextStep', onchange: () => shareRow.classList.toggle('hidden', !stepBox.checked) });
+  const close = openModal(`Time with ${p.name}`, form([
+    field('When', h('input', { type: 'date', name: 'metOn', required: true, value: todayLocal(), max: todayLocal() })),
+    field('What happened?', h('textarea', { name: 'note', rows: 4, maxlength: 2000, placeholder: 'Where you met, what you talked about, what to follow up on…' })),
+    h('label', { class: 'check-row' }, stepBox, h('span', {}, 'They took a next step toward God')),
+    shareRow,
+  ], {
+    submitLabel: 'Save',
+    onSubmit: async (data) => {
+      const nextStep = stepBox.checked;
+      if (!(await fiveRequest(`/api/five/${p.id}/meetings`, 'POST', { metOn: data.metOn, note: data.note, nextStep }))) return;
+      close();
+      const channel = nextStepsChannel();
+      if (nextStep && share.checked && channel) {
+        const story = data.note?.trim() || 'Someone I’ve been praying for took a next step toward God.';
+        try {
+          await api(`/api/rooms/${channel.room}/messages`, { method: 'POST', body: { body: `🙌 A next step toward God: ${story}` } });
+          toast('Saved, and shared in #next-steps');
+        } catch (err) { toast(err.message, 'error'); }
+      } else toast('Saved');
+    },
+  }));
+}
+
 // ---------- vision ----------
 
 const VISION = {
@@ -890,7 +1043,8 @@ const VISION = {
     ['Encourage', 'Build one another up. Share wins, scripture, and what God is doing. Pray for each other by name in #prayer-requests.'],
     ['Share', 'Pass on the tools, prompts, tutorials, and lessons that are working for you, so no one has to learn everything alone.'],
     ['Collaborate', 'Post the project you are building and the help you need. Offer your skills to someone else’s venture.'],
-    ['Gather', 'Meet on the weekly or bi-weekly community call to pray, celebrate progress, learn together, and stay accountable.'],
+    ['Gather', 'Meet on Zoom every other week and at quarterly gatherings to pray, workshop business problems, celebrate progress, and follow up on what happened since the last call.'],
+    ['Pursue', 'Pray for and pursue five people. Keep track of your time with them in My five, and tell the story in #next-steps when someone takes a step toward God.'],
   ],
   values: [
     ['Kingdom first', 'The business serves the mission, not the other way around. “Seek first the kingdom of God.” (Matthew 6:33)'],
@@ -900,6 +1054,52 @@ const VISION = {
     ['Integrity', 'Build honest products, make honest claims, and treat customers the way Christ would.'],
     ['Iron sharpens iron', 'Speak truth in love. Ask hard questions and receive them well. (Proverbs 27:17)'],
   ],
+};
+
+// How the community works: the plan every member signs up for.
+const PLAN = {
+  title: 'One integrated life.',
+  sub: 'A covocational community of business leaders',
+  intro: 'We are forming a community of men who help one another build sustainable businesses and invest deeply in people. Our work gives us a genuine place among business leaders, where trusted relationships can open honest conversations about God and life. We listen, ask questions, and walk with people toward a next step with God, without pressure or manipulation.',
+  facts: ['10–12 men', 'One year', 'No financial commitment'],
+  parts: [
+    {
+      n: '01', title: 'The people',
+      text: [
+        'Entrepreneurs, business owners, and executives with meaningful control over their schedules. Men willing to create margin, put people ahead of additional financial gain, and make sacrifices for Jesus.',
+        'Different life stages mean different capacities.',
+      ],
+      here: ['Get to know the members', '#/members'],
+    },
+    {
+      n: '02', title: 'The work',
+      text: [
+        'We help one another find the right customers and problems to solve, choose opportunities wisely, and build repeatable businesses that use time well. We learn each other’s work so we can refer opportunities and collaborate.',
+        'Through business networks, shared interests, and one-on-one time, we pursue relationships beyond the need for another client.',
+      ],
+      here: ['Share a project or see what’s working', '#/projects'],
+    },
+    {
+      n: '03', title: 'The rhythm',
+      text: [
+        'Zoom calls every other week and quarterly gatherings. We explore big questions about God and life, workshop business problems and real conversations, pray, and encourage our own growth in Christ.',
+        'Between calls, the channels here are our thread for anyone to contribute. At the next call, we follow up on what happened.',
+      ],
+      here: ['See the next call', '#/calls'],
+    },
+  ],
+  priorities: ['Time with God and His calling', 'Family and personal life', 'Business'],
+  five: 'Each member works toward five ongoing relationships. Meeting every other week averages about ten meetings a month across the list.',
+  measure: {
+    question: 'Did anyone take a next step toward God?',
+    text: 'If so, how? Tell the story. We reflect and celebrate what God is doing, so we notice what is happening now rather than focusing only on future plans.',
+  },
+  path: [
+    ['Meet one-on-one', 'Talk with a current member.'],
+    ['Experience the group', 'Three calls over six weeks.'],
+    ['Commit for a year', 'Join if the group is a fit.'],
+  ],
+  commitment: 'Attend all quarterly gatherings and at least 80% of calls. No financial commitment.',
 };
 
 const VISION_URL = () => `${location.origin}/vision`;
@@ -939,22 +1139,56 @@ function renderPublicVision() {
         h('button', { class: 'btn small', onclick: shareVision }, 'Share'),
         h('a', { class: 'btn small primary', href: '/' }, signedIn ? 'Open ACE' : 'Sign in'))),
     h('main', { class: 'public-main' },
-      visionContent(),
+      visionContent({ isPublic: true }),
       !signedIn && h('section', { class: 'card public-join' },
         h('h2', { class: 'serif' }, 'Want to be part of ACE?'),
-        h('p', { class: 'muted' }, 'ACE is a private, invite-only group. If someone gave you an invite link or code, use it to join. If not, reach out to the person who shared this page with you.'),
+        h('p', { class: 'muted' }, 'It begins with a conversation. Reach out to the person who shared this page with you to meet one-on-one. If you’ve been given an invite link or code, you can use it to join and experience the group.'),
         h('div', { class: 'public-join-actions' },
           state.config?.codeEnabled && h('a', { class: 'btn primary', href: '/#/join-code' }, 'Join with an invite code'),
           h('a', { class: 'btn', href: '/' }, 'I’m already a member'))))));
   window.scrollTo(0, 0);
 }
 
-function visionContent() {
+// "Here on ACE" links only make sense to members, so the public page leaves them out.
+function planHere(here, isPublic) {
+  return !isPublic && here && h('a', { class: 'plan-here', href: here[1] }, `${here[0]} →`);
+}
+
+function visionContent({ isPublic = false } = {}) {
   return h('div', { class: 'page-inner vision' },
       h('section', { class: 'hero-card' },
         h('div', { class: 'eyebrow' }, 'The vision'),
-        h('h1', { class: 'serif' }, VISION.statement),
+        h('h1', { class: 'serif' }, PLAN.title),
+        h('p', { class: 'plan-sub' }, `${PLAN.sub}, using AI to build businesses that give us back our time for loving God, our families, and making disciples.`),
+        h('ul', { class: 'plan-facts' }, PLAN.facts.map((f) => h('li', {}, f))),
         h('div', { class: 'verse' }, '“Go therefore and make disciples of all nations…” — Matthew 28:19')),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'Who we are'),
+        h('p', {}, PLAN.intro)),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'How the community works'),
+        h('div', { class: 'plan-grid' },
+          PLAN.parts.map((part) => h('article', { class: 'card plan-part' },
+            h('div', { class: 'plan-num' }, part.n),
+            h('h3', {}, part.title),
+            part.text.map((t) => h('p', {}, t)),
+            planHere(part.here, isPublic)))),
+        h('div', { class: 'plan-pair' },
+          h('article', { class: 'card plan-part plan-five' },
+            h('div', { class: 'plan-big' }, '5'),
+            h('h3', {}, 'People to pray for & pursue'),
+            h('p', {}, PLAN.five),
+            planHere(['Open My five', '#/five'], isPublic)),
+          h('article', { class: 'card plan-part plan-measure' },
+            h('div', { class: 'plan-num' }, '04'),
+            h('h3', {}, 'The measure'),
+            h('p', { class: 'plan-question serif' }, PLAN.measure.question),
+            h('p', {}, PLAN.measure.text),
+            planHere(['Tell a story in #next-steps', nextStepsHash()], isPublic)))),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'First things first'),
+        h('p', {}, 'We calendar time in this order:'),
+        h('ol', { class: 'plan-priorities' }, PLAN.priorities.map((p) => h('li', {}, p)))),
       h('section', { class: 'vision-block' },
         h('h2', { class: 'serif' }, 'Why we exist'),
         h('p', {}, VISION.why)),
@@ -982,8 +1216,22 @@ function visionContent() {
           h('li', {}, h('strong', {}, 'Across the U.S.'), h('span', {}, 'Wherever our members are')),
           h('li', {}, h('strong', {}, 'The ends of the earth'), h('span', {}, 'Every nation'))),
         h('p', {}, 'Full-time ministry is not a requirement for anyone in ACE. But ultimately we are all focused on making disciples: raising up people who love Jesus and want to pursue God.'),
-        h('div', { class: 'verse' }, '“You will be my witnesses in Jerusalem and in all Judea and Samaria, and to the end of the earth.” — Acts 1:8')));
+        h('div', { class: 'verse' }, '“You will be my witnesses in Jerusalem and in all Judea and Samaria, and to the end of the earth.” — Acts 1:8')),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'Begin with a conversation'),
+        planPath(),
+        h('p', { class: 'plan-commit' }, PLAN.commitment)));
 }
+
+// The three steps into the group. `at` highlights where someone is (0-based).
+function planPath(at = -1) {
+  return h('ol', { class: 'plan-path' }, PLAN.path.map(([title, text], i) => h('li', { class: i === at ? 'here' : i < at ? 'done' : '' },
+    h('span', { class: 'plan-step' }, i < at ? '✓' : `0${i + 1}`),
+    h('div', {}, h('strong', {}, title), h('span', {}, text)))));
+}
+
+const nextStepsChannel = () => (state.channels || []).find((c) => c.name === 'next-steps');
+const nextStepsHash = () => (nextStepsChannel() ? roomHash(nextStepsChannel().room) : '#/chat');
 
 // ---------- start here: a walkthrough of the vision ----------
 
@@ -992,7 +1240,7 @@ const TOUR = [
   {
     icon: '✝', kicker: 'Welcome to ACE', title: 'AI Christian Entrepreneurs',
     body: [
-      'ACE is a small, private group of Christians using AI to build businesses.',
+      'One integrated life. ACE is a small, private, covocational community of business leaders who help one another build sustainable businesses, using AI, and invest deeply in people.',
       'Not to hustle harder or chase wealth, but to give us back our time: for loving God, our families, and making disciples.',
     ],
     verse: '“Seek first the kingdom of God and his righteousness.” — Matthew 6:33',
@@ -1037,11 +1285,19 @@ const TOUR = [
   {
     icon: '☏', kicker: 'Gather', title: 'Community calls',
     body: [
-      'Every week we meet to pray, celebrate wins, learn an AI tool together, and stay accountable.',
+      'We meet on Zoom every other week and gather in person every quarter, to explore big questions about God and life, workshop real business problems, pray, and follow up on what happened since last time.',
       'RSVP from the Calls page and tap Join call when it starts. You’ll get a reminder 15 minutes before.',
     ],
     note: 'We also have a workspace to meet in person: 43 Post, Irvine, CA 92618. Ask Jake about hours and access.',
     action: ['See the next call', '#/calls'],
+  },
+  {
+    icon: '5', kicker: 'Invest in people', title: 'Five people to pray for & pursue',
+    body: [
+      'Each of us works toward five ongoing relationships: clients, neighbors, friends. Meeting every other week averages about ten meetings a month across the list.',
+      'Keep your list in My five (only you can see it). The measure: did anyone take a next step toward God? When they do, tell the story in #next-steps.',
+    ],
+    action: ['Open My five', '#/five'],
   },
   {
     icon: '✦', kicker: 'Shape the network', title: 'Suggestions',
@@ -1049,7 +1305,7 @@ const TOUR = [
     action: ['Open suggestions', '#/suggestions'],
   },
   {
-    icon: '🌍', kicker: 'Where it all leads', title: 'His kingdom, here and to the ends of the earth',
+    icon: '🌍', orbit: true, kicker: 'Where it all leads', title: 'His kingdom, here and to the ends of the earth',
     body: [
       'Freed-up time is for our families, and above all for enjoying the Lord, pursuing Him, and seeing His kingdom built: in LA Metro, across the U.S., and to the ends of the earth.',
       'Full-time ministry isn’t a requirement for anyone. But we are all ultimately focused on making disciples: raising up people who love Jesus and want to pursue God.',
@@ -1068,6 +1324,7 @@ function tourChecklist() {
     ['Fill out your profile', Boolean(me.headline || me.bio || me.skills || me.ministry), () => openProfileEditor()],
     ['Say hello in #general', false, () => first && go(roomHash(first.room))],
     ['RSVP to the next community call', (state.calls || []).some((c) => c.occurrences[0]?.rsvps.includes(me.id)), () => go('#/calls')],
+    ['Add your five people', (state.five?.people.length ?? 0) > 0, () => go('#/five')],
     ['Put ACE on your home screen', isStandalone(), () => installApp()],
     ['Turn on notifications', pushState === 'on', () => openNotificationSettings()],
     ['Read the full vision', false, () => go('#/vision')],
@@ -1079,7 +1336,7 @@ function tourChecklist() {
 }
 
 // Short labels for the slider tabs at the top of the walkthrough.
-const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Calls', 'Suggestions', 'Where it leads', 'Next steps'];
+const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Calls', 'My five', 'Suggestions', 'Where it leads', 'Next steps'];
 
 // A slowly turning 3D block with the step's icon on its faces.
 function tourCube(icon) {
@@ -1118,7 +1375,7 @@ function renderTour(stepIndex = 0) {
 
   const stations = TOUR.map((step, i) => {
     const card = h('article', { class: 'stop-card', 'aria-label': `${i + 1} of ${count}: ${step.title}` },
-      h('div', { class: 'stop-art', 'aria-hidden': 'true' }, i === 8 ? tourOrbit() : tourCube(step.icon)),
+      h('div', { class: 'stop-art', 'aria-hidden': 'true' }, step.orbit ? tourOrbit() : tourCube(step.icon)),
       h('div', { class: 'stop-body' },
         h('div', { class: 'tour-kicker' }, `${i + 1} of ${count} · ${step.kicker}`),
         h('h2', { class: 'serif' }, step.title),
@@ -2112,8 +2369,8 @@ function callCard(call, { limit = 3 } = {}) {
       h('div', { style: 'flex:1;min-width:0' },
         h('h3', { style: 'font-size:17px' }, call.title),
         h('div', { class: 'muted small' }, [
-          call.frequency === 'once'
-            ? d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+          call.frequency === 'once' || call.frequency === 'quarterly'
+            ? `${call.frequency === 'quarterly' ? 'Every three months · next ' : ''}${d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}`
             : `${FREQ_LABELS[call.frequency]} · ${d.toLocaleDateString([], { weekday: 'long' })}s`,
           ` at ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })} · ${call.durationMin} min`,
         ].join(''))),
@@ -2148,13 +2405,21 @@ function renderCalls() {
   const calls = state.calls || [];
   const isAdmin = state.me.role === 'admin';
   return [
-    topbar('Community calls', 'Weekly and bi-weekly gatherings to pray, share wins, and learn together.',
+    topbar('Community calls', 'Zoom calls every other week and quarterly gatherings.',
       isAdmin ? [h('button', { class: 'btn primary', onclick: () => openCallEditor() }, '+ Schedule call')] : []),
     h('div', { class: 'page' }, h('div', { class: 'page-inner', style: 'display:grid;gap:16px' },
-      workspaceCard(),
+      rhythmCard(),
       calls.length ? calls.map((c) => callCard(c))
-        : h('div', { class: 'card empty' }, isAdmin ? 'No calls scheduled yet. Use “Schedule call” to set up the weekly or bi-weekly gathering.' : 'No calls scheduled yet. An admin will post the next one soon.'))),
+        : h('div', { class: 'card empty' }, isAdmin ? 'No calls scheduled yet. Use “Schedule call” to set up the every-other-week call and the quarterly gatherings.' : 'No calls scheduled yet. An admin will post the next one soon.'),
+      workspaceCard())),
   ];
+}
+
+function rhythmCard() {
+  return h('section', { class: 'card rhythm-card' },
+    h('h3', {}, 'Our rhythm'),
+    h('p', {}, 'We explore big questions about God and life, workshop business problems and real conversations, pray, and encourage our own growth in Christ. Between calls, keep the conversation going in the channels, and at the next call we follow up on what happened.'),
+    h('p', { class: 'small muted' }, PLAN.commitment));
 }
 
 // Where we can meet in person.
@@ -2181,10 +2446,10 @@ function openCallEditor(call) {
   const today = new Date().toLocaleDateString('en-CA');
 
   const close = openModal(call ? 'Edit call' : 'Schedule a call', form([
-    field('Title', h('input', { type: 'text', name: 'title', required: true, maxlength: 120, value: call?.title ?? 'Weekly Community Call' })),
+    field('Title', h('input', { type: 'text', name: 'title', required: true, maxlength: 120, value: call?.title ?? 'Community Call' })),
     field('Description', h('textarea', { name: 'description', maxlength: 2000, rows: 3, value: call?.description, placeholder: 'Prayer, member wins, a short teaching on an AI tool, and open Q&A.' })),
     h('div', { class: 'row' },
-      field('Repeats', h('select', { name: 'frequency' }, Object.entries(FREQ_LABELS).map(([value, label]) => h('option', { value, selected: (call?.frequency ?? 'weekly') === value }, label)))),
+      field('Repeats', h('select', { name: 'frequency' }, Object.entries(FREQ_LABELS).map(([value, label]) => h('option', { value, selected: (call?.frequency ?? 'biweekly') === value }, label)))),
       field('Length (minutes)', h('input', { type: 'number', name: 'durationMin', min: 5, max: 600, value: call?.durationMin ?? 60, required: true }))),
     h('div', { class: 'row' },
       field('First call date', h('input', { type: 'date', name: 'startDate', required: true, value: call?.startDate ?? today })),
@@ -2229,7 +2494,8 @@ function renderMembers() {
     grid.replaceChildren(...(people.length ? people.map((u) => h('article', { class: 'card member-card', onclick: () => openMemberProfile(u.id) },
       avatar(u.id),
       h('div', { style: 'min-width:0' },
-        h('h3', {}, u.name, state.online.has(u.id) && h('span', { class: 'dot on', title: 'Online' }), u.role === 'admin' && h('span', { class: 'chip' }, 'Admin')),
+        h('h3', {}, u.name, state.online.has(u.id) && h('span', { class: 'dot on', title: 'Online' }), u.role === 'admin' && h('span', { class: 'chip' }, 'Admin'),
+          u.stage === 'guest' && h('span', { class: 'chip s-open' }, 'Experiencing the group')),
         u.headline && h('p', { class: 'muted' }, u.headline),
         u.skills && h('p', { class: 'small' }, h('b', {}, 'Skills: '), u.skills),
         u.ministry && h('p', { class: 'small' }, h('b', {}, 'Ministry: '), u.ministry)))) : [h('div', { class: 'card empty' }, 'No members match your search.')]));
@@ -2240,12 +2506,18 @@ function renderMembers() {
   const invites = isAdmin && h('section', { class: 'invites', id: 'invites' }, h('p', { class: 'muted small' }, 'Loading invites…'));
   if (isAdmin) afterRenderHooks.push(loadInvites);
   return [
-    topbar('Members', `${state.users.size} members · invite-only`,
+    topbar('Members', memberCounts(),
       isAdmin ? [h('button', { class: 'btn primary', onclick: openInviteForm }, '+ Invite someone')] : []),
     h('div', { class: 'page' }, h('div', { class: 'page-inner' },
       invites,
       h('div', { style: 'margin-bottom:16px' }, search), grid)),
   ];
+}
+
+function memberCounts() {
+  const guests = [...state.users.values()].filter((u) => u.stage === 'guest').length;
+  const committed = state.users.size - guests;
+  return `${committed} committed for the year${guests ? ` · ${guests} experiencing the group` : ''} · invite-only`;
 }
 
 // ---------- invites (admins) ----------
@@ -2421,7 +2693,9 @@ function openMemberProfile(userId) {
   const close = openModal(u.name, h('div', {},
     h('div', { style: 'display:flex;gap:14px;align-items:center;margin-bottom:16px' }, avatar(u.id, 'lg'),
       h('div', {}, u.headline && h('div', {}, u.headline),
-        h('div', { class: 'muted small' }, state.online.has(u.id) ? '● Online now' : 'Offline', ` · joined ${shortDate(u.createdAt)}`, u.role === 'admin' ? ' · Admin' : ''))),
+        h('div', { class: 'muted small' }, state.online.has(u.id) ? '● Online now' : 'Offline', ` · joined ${shortDate(u.createdAt)}`, u.role === 'admin' ? ' · Admin' : ''),
+        h('div', { class: 'small', style: 'margin-top:2px' }, u.stage === 'guest' ? 'Experiencing the group'
+          : u.committedOn ? `Committed for the year since ${shortDate(u.committedOn + 'T12:00:00')}` : 'Committed member'))),
     u.bio && h('div', { class: 'detail-block' }, h('h4', {}, 'About'), h('p', {}, u.bio)),
     u.skills && h('div', { class: 'detail-block' }, h('h4', {}, 'Skills & tools'), h('p', {}, u.skills)),
     u.ministry && h('div', { class: 'detail-block' }, h('h4', {}, 'Ministry focus'), h('p', {}, u.ministry)),
@@ -2436,6 +2710,16 @@ function openMemberProfile(userId) {
           openMemberProfile(user.id);
         } catch (err) { toast(err.message, 'error'); }
       } }, u.role === 'admin' ? 'Remove admin' : 'Make admin'),
+      state.me.role === 'admin' && h('button', { class: 'btn ghost', onclick: async () => {
+        try {
+          const { user } = await api(`/api/users/${u.id}/stage`, { method: 'PATCH', body: { stage: u.stage === 'guest' ? 'member' : 'guest' } });
+          state.users.set(user.id, user);
+          if (user.id === state.me.id) Object.assign(state.me, { stage: user.stage, committedOn: user.committedOn });
+          close();
+          openMemberProfile(user.id);
+          toast(user.stage === 'guest' ? `${user.name} is experiencing the group` : `${user.name} is committed for the year 🙌`);
+        } catch (err) { toast(err.message, 'error'); }
+      } }, u.stage === 'guest' ? 'Mark committed for the year' : 'Move to experiencing'),
       state.me.role === 'admin' && !isMe && h('button', { class: 'btn ghost danger', onclick: async () => {
         if (!confirm(`Remove ${u.name} from ACE? They will be signed out and their account, messages, and posts will be deleted.`)) return;
         try {
@@ -2649,9 +2933,10 @@ async function logout(silent = false) {
 
 async function start() {
   applyBootstrap(await api('/api/bootstrap'));
-  const [projects, suggestions, playbooks] = await Promise.all([
-    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), loadCalls(),
+  const [projects, suggestions, playbooks, five] = await Promise.all([
+    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), api('/api/five'), loadCalls(),
   ]);
+  state.five = five;
   state.projects = projects.projects;
   state.suggestions = suggestions.suggestions;
   state.playbooks = playbooks.playbooks;
