@@ -249,6 +249,35 @@ const STATEMENTS = [
     body TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
+  // What each member sells, shared so others can refer people to them.
+  `CREATE TABLE IF NOT EXISTS offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    audience TEXT NOT NULL DEFAULT '',
+    problem TEXT NOT NULL DEFAULT '',
+    result TEXT NOT NULL DEFAULT '',
+    price TEXT NOT NULL DEFAULT '',
+    details TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    updated_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  // Each member's own leads, from first contact to client. Private to that member.
+  `CREATE TABLE IF NOT EXISTS leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    company TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    stage TEXT NOT NULL DEFAULT 'lead',
+    value INTEGER NOT NULL DEFAULT 0,
+    next_step TEXT NOT NULL DEFAULT '',
+    next_date TEXT,
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    updated_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  'CREATE INDEX IF NOT EXISTS leads_user ON leads(user_id)',
   // Starter channels, only for a brand-new network.
   `INSERT INTO channels (name, description)
     SELECT column1, column2 FROM (VALUES

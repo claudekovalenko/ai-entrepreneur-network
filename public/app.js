@@ -204,6 +204,7 @@ function parseRoute() {
   if (parts[0] === 'vision') return { name: 'vision' };
   if (parts[0] === 'discipling' || parts[0] === 'five') return { name: 'discipling' };
   if (parts[0] === 'real-estate') return { name: 'realestate', id: parts[1] && Number(parts[1]) };
+  if (parts[0] === 'offers') return { name: 'offers', tab: ['offers', 'get-leads'].includes(parts[1]) ? parts[1] : 'leads' };
   if (parts[0] === 'pipeline' && parts[1] === 'deals') return { name: 'realestate', id: parts[2] && Number(parts[2]) };
   if (parts[0] === 'pipeline') return { name: 'pipeline' };
   if (parts[0] === 'tour') return { name: 'tour', step: Math.max(0, (Number(parts[1]) || 1) - 1) };
@@ -367,6 +368,7 @@ function renderSidebar() {
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/discipling', icon: h('span', { class: 'icon' }, '♡'), label: 'Who I’m discipling', active: r.name === 'discipling' }),
       navItem({ href: '#/pipeline', icon: h('span', { class: 'icon' }, '↗'), label: 'Pipeline', active: r.name === 'pipeline' }),
+      navItem({ href: '#/offers', icon: h('span', { class: 'icon' }, '◎'), label: 'Offers & leads', active: r.name === 'offers' }),
       navItem({ href: '#/real-estate', icon: h('span', { class: 'icon' }, '⌂'), label: 'Real estate', active: r.name === 'realestate', extra: state.deals?.length ? h('span', { class: 'small', style: 'opacity:.7' }, `${state.deals.length} deal${state.deals.length === 1 ? '' : 's'}`) : null }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
@@ -449,7 +451,7 @@ function renderTabBar() {
   return h('nav', { class: 'tabbar', 'aria-label': 'Main' },
     tab('#/home', tabIcon('home'), 'Home', r === 'home'),
     tab('#/chat', tabIcon('chat'), 'Chat', r === 'chat' || r === 'room', unread),
-    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions', 'pipeline', 'realestate'].includes(r)),
+    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions', 'pipeline', 'realestate', 'offers'].includes(r)),
     tab('#/calls', tabIcon('calls'), 'Calls', r === 'calls'),
     h('button', { class: 'tabbar-item', type: 'button', onclick: () => document.querySelector('.shell').classList.add('nav-open') },
       h('span', { class: 'tabbar-icon', 'aria-hidden': 'true' }, tabIcon('more')), h('span', {}, 'More')));
@@ -826,6 +828,7 @@ function renderMain() {
   else if (r.name === 'discipling') main.append(...renderDiscipling());
   else if (r.name === 'pipeline') main.append(...renderPipeline());
   else if (r.name === 'realestate') main.append(...renderRealEstate());
+  else if (r.name === 'offers') main.append(...renderOffers());
   else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
@@ -2032,13 +2035,13 @@ const PIPELINE = [
     key: 'build', title: 'Build with AI', icon: '⚙',
     text: 'Be the one who introduces the people and businesses around you to AI. Help them first; the trust you earn becomes relationships, and a business that solves real problems grows from there.',
     ready: ['People come to you as their go-to for AI', 'You have paying customers', 'The work is repeatable, not one-off'],
-    links: [['Share a project', '#/projects'], ['See what’s working', '#/working']],
+    links: [['Your offer & leads', '#/offers'], ['How to get leads', '#/offers/get-leads'], ['See what’s working', '#/working']],
   },
   {
     key: 'generate', title: 'Generate income', icon: '◎',
     text: 'Grow it into steady income that doesn’t need all your hours, using systems, automation, and the right people.',
     ready: ['Income is steady month to month', 'It runs on fewer of your hours each month'],
-    links: [['Blueprints', '#/working/blueprints']],
+    links: [['Your offer & leads', '#/offers'], ['Blueprints', '#/working/blueprints']],
   },
   {
     key: 'set-aside', title: 'Set aside', icon: '▣',
@@ -2341,6 +2344,288 @@ async function openDeal(id) {
       state.route = parseRoute();
     },
   });
+}
+
+// ---------- offers & leads: from first conversation to client ----------
+
+const LEAD_STAGES = [
+  ['lead', 'New people', 'Someone you’ve met or been introduced to'],
+  ['conversation', 'Talking', 'Coffee, a call, or a free AI look at what they do'],
+  ['proposal', 'Offer made', 'You’ve shared how you could help and what it costs'],
+  ['client', 'Working together', 'They said yes'],
+  ['referral', 'Referring others', 'Happy, and introducing you to people they know'],
+  ['not-now', 'Not now', 'Still a relationship, just not a client yet'],
+];
+const LEAD_LABELS = Object.fromEntries(LEAD_STAGES.map(([k, l]) => [k, l]));
+const OPEN_STAGES = ['lead', 'conversation', 'proposal'];
+
+// How we get leads: relationship first, by being the person who helps people with AI.
+const LEAD_WAYS = [
+  ['Start with people you know', 'Tell 20 people in your life what you now help with: friends, church, neighbors, past coworkers. Most first clients come from relationships you already have.'],
+  ['Teach for free', 'Host a 45-minute “AI for everyday life and work” session at your church, a chamber of commerce, a library, or the Irvine workspace. Teaching makes you the AI person in the room.'],
+  ['Share one helpful tip a week', 'Post something short and practical where people already are: LinkedIn, Instagram, Facebook groups, Nextdoor. Show, don’t hype.'],
+  ['Offer a free AI look', 'Spend 30 minutes with someone looking at their week or their business and find three things AI could take off their plate. Many of these become clients, and all of them become relationships.'],
+  ['Ask for introductions', 'Every person you help knows others like them. Ask, “Who else do you know who’s buried in this?”'],
+  ['Refer each other', 'Know what the other members offer, and send people their way. Their offers are on the Offers tab.'],
+];
+const BRAND_TIPS = [
+  'Be known for one thing first: “the AI guy for contractors in Orange County” is easier to remember than “I do AI stuff.”',
+  'Use the same headline everywhere (LinkedIn, Instagram, your ACE profile, your email signature).',
+  'Collect short stories: “He got 3 hours a week back.” Stories travel further than features.',
+  'Be generous. Answer questions for free, and teach in public. Trust comes before the sale.',
+];
+
+// Ready-to-use examples members can copy and make their own.
+const CONTENT_EXAMPLES = [
+  {
+    kind: 'LinkedIn or Facebook post', title: 'Hours back every week',
+    text: `Last month a local contractor told me he spends every Sunday night writing estimates.
+
+We set up a simple AI assistant that drafts them from his notes in a few minutes. He reviews, tweaks, and sends.
+
+That's about 3 hours back every week, and he's spending them with his kids.
+
+You don't need to be technical to use AI. You need someone to show you where it fits.
+
+If you run a business and want to know where AI could save you time, send me a message. I'm happy to take a look, no charge.`,
+  },
+  {
+    kind: 'Post for everyone', title: 'AI for everyday life',
+    text: `Three ways I've seen AI help regular people this month (no tech skills needed):
+
+1. A mom planned two weeks of dinners and a grocery list around her family's allergies in 5 minutes.
+2. A friend rewrote his résumé for a specific job and landed the interview.
+3. A retiree finally understood a confusing medical bill by asking AI to explain it in plain English.
+
+If you've been curious about AI but don't know where to start, I'd love to show you. Message me, or come to the free session I'm hosting next week.`,
+  },
+  {
+    kind: 'Free session invite', title: 'AI made simple',
+    text: `Free session: AI made simple
+[Day, date] · [time] · 43 Post, Irvine (or on Zoom)
+
+In 45 minutes you'll see:
+• 3 everyday tasks AI can take off your plate this week
+• Which tools are worth using (and which aren't)
+• A live demo, with your questions answered
+
+For business owners, parents, and anyone curious. No tech background needed.
+Reply or message me to save a seat.`,
+  },
+  {
+    kind: '60-second video', title: 'Same five questions',
+    text: `HOOK: "If you're still answering the same five questions by hand every day, watch this."
+
+SHOW: Screen-record setting up an AI assistant that answers those questions from your own notes or website, in under a minute.
+
+POINT: "That's about an hour a day back."
+
+CALL: "Want me to look at where AI could help you? Message me."`,
+  },
+  {
+    kind: 'Message to someone you know', title: 'Coffee, no pitch',
+    text: `Hey [Name], hope you and the family are doing well. I've been helping people use AI to cut down on busywork (things like follow-ups, scheduling, and writing). Thought of you since you mentioned how much time [task] takes. Want to grab coffee and I'll show you what it could look like for you? No pitch, just ideas.`,
+  },
+  {
+    kind: 'Follow-up after a free AI look', title: 'Three ideas',
+    text: `Thanks for the time today, [Name]. Here are the three places I think AI could save you the most time:
+
+1. ___
+2. ___
+3. ___
+
+I'm happy to help you set up any of them. It usually takes about [timeframe] and costs [price]. Either way, I hope this helps.`,
+  },
+  {
+    kind: 'Asking for an introduction', title: 'Who else?',
+    text: `I'm really glad [result] is working for you. I'm looking to help a couple more people like you this month. Who's one person you know who's buried in [task]? A quick intro by text is perfect.`,
+  },
+];
+
+async function leadRequest(path, method, body) {
+  try {
+    state.leads = (await api(path, { method, body })).leads;
+    renderShell();
+    return true;
+  } catch (err) {
+    toast(err.message, 'error');
+    return false;
+  }
+}
+
+function renderOffers() {
+  const r = state.route;
+  const tab = (key, href, label) => h('a', { class: `tab ${r.tab === key ? 'on' : ''}`, href, role: 'tab', 'aria-selected': String(r.tab === key) }, label);
+  const actions = r.tab === 'leads' ? [h('button', { class: 'btn primary', onclick: () => openLeadEditor() }, '+ Add someone')]
+    : r.tab === 'offers' ? [h('button', { class: 'btn primary', onclick: () => openOfferEditor() }, '+ Share an offer')] : [];
+  return [
+    topbar('Offers & leads', 'Help people with AI, build relationships, and grow from there', actions),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner' },
+      h('div', { class: 'tabs', role: 'tablist' },
+        tab('leads', '#/offers', 'My leads'), tab('offers', '#/offers/offers', 'Offers'), tab('get-leads', '#/offers/get-leads', 'Get leads')),
+      r.tab === 'offers' ? offersBoard() : r.tab === 'get-leads' ? getLeadsGuide() : leadsBoard())),
+  ];
+}
+
+function leadsBoard() {
+  const leads = state.leads || [];
+  const open = leads.filter((l) => OPEN_STAGES.includes(l.stage));
+  const working = leads.filter((l) => l.stage === 'client' || l.stage === 'referral');
+  const sum = (list) => list.reduce((n, l) => n + (l.value || 0), 0);
+  const today = todayLocal();
+  const due = leads.filter((l) => l.nextDate && l.nextDate <= today && l.stage !== 'not-now').length;
+  const myOffers = (state.offers || []).filter((o) => o.userId === state.me.id);
+  const card = (l) => {
+    const i = LEAD_STAGES.findIndex(([k]) => k === l.stage);
+    const next = LEAD_STAGES[i + 1] && i < 4 ? LEAD_STAGES[i + 1] : null;
+    return h('article', { class: 'card lead-card', onclick: () => openLeadEditor(l) },
+      h('strong', {}, l.name),
+      (l.company || l.source) && h('div', { class: 'small muted' }, [l.company, l.source && `via ${l.source}`].filter(Boolean).join(' · ')),
+      l.value > 0 && h('div', { class: 'small lead-value' }, money(l.value)),
+      l.nextStep && h('div', { class: `small lead-next ${l.nextDate && l.nextDate <= today ? 'due' : ''}` },
+        '→ ', l.nextStep, l.nextDate ? ` · ${shortDate(l.nextDate + 'T12:00:00')}` : ''),
+      next && h('button', { class: 'btn small ghost lead-move', onclick: (e) => {
+        e.stopPropagation();
+        leadRequest(`/api/leads/${l.id}`, 'PATCH', { stage: next[0] });
+      } }, `Move to ${next[1]} →`));
+  };
+  return h('div', { class: 'leads' },
+    h('p', { class: 'muted intro' }, 'The people you’re helping with AI, from first conversation to working together. Relationships come first: every person here is someone to serve, not just a sale. 🔒 Only you can see this list.'),
+    !myOffers.length && h('div', { class: 'card offer-nudge' },
+      h('span', {}, 'Start by writing down your offer: who you help, the problem you solve, and what it costs.'),
+      h('button', { class: 'btn small primary', onclick: () => openOfferEditor() }, 'Write your offer')),
+    h('div', { class: 'five-meter' },
+      h('div', { class: 'five-stat' }, h('b', {}, open.length), h('span', {}, 'in progress')),
+      h('div', { class: 'five-stat' }, h('b', {}, money(sum(leads.filter((l) => l.stage === 'proposal')))), h('span', {}, 'in offers made')),
+      h('div', { class: 'five-stat' }, h('b', {}, working.length), h('span', {}, 'working together')),
+      h('div', { class: `five-stat ${due ? 'due' : ''}` }, h('b', {}, due), h('span', {}, 'follow-ups due'))),
+    h('div', { class: 'lead-board' }, LEAD_STAGES.map(([key, label, hint]) => {
+      const list = leads.filter((l) => l.stage === key);
+      return h('section', { class: `lead-col ${key === 'not-now' ? 'quiet' : ''}` },
+        h('div', { class: 'lead-col-head' }, h('strong', {}, label), h('span', { class: 'muted small' }, list.length)),
+        h('div', { class: 'small muted lead-hint' }, hint),
+        list.map(card),
+        key === 'lead' && h('button', { class: 'card five-empty lead-add', onclick: () => openLeadEditor() }, '+ Add someone'));
+    })));
+}
+
+function openLeadEditor(l) {
+  const formEl = form([
+    h('div', { class: 'row' },
+      field('Name', h('input', { type: 'text', name: 'name', required: true, maxlength: 120, value: l?.name })),
+      field('Business or role', h('input', { type: 'text', name: 'company', maxlength: 120, value: l?.company, placeholder: 'Optional' }))),
+    h('div', { class: 'row' },
+      field('Where you met', h('input', { type: 'text', name: 'source', maxlength: 120, value: l?.source, placeholder: 'e.g. church, referral from Mark, workshop' })),
+      field('Stage', h('select', { name: 'stage' }, LEAD_STAGES.map(([value, label]) => h('option', { value, selected: (l?.stage ?? 'lead') === value }, label))))),
+    h('div', { class: 'row' },
+      field('Next step', h('input', { type: 'text', name: 'nextStep', maxlength: 300, value: l?.nextStep, placeholder: 'e.g. Coffee to show the AI demo' })),
+      field('By when', h('input', { type: 'date', name: 'nextDate', value: l?.nextDate ?? '' }))),
+    field('Value ($)', h('input', { type: 'number', name: 'value', min: 0, step: 50, value: l?.value || '', placeholder: 'What the work is worth, if it goes ahead' })),
+    field('Notes', h('textarea', { name: 'notes', rows: 3, maxlength: 4000, value: l?.notes, placeholder: 'What they need, what you talked about, how to pray for them…' })),
+  ], {
+    submitLabel: l ? 'Save' : 'Add',
+    onSubmit: async (data) => {
+      const body = { ...data, value: Math.round(Number(data.value) || 0) };
+      if (await leadRequest(l ? `/api/leads/${l.id}` : '/api/leads', l ? 'PATCH' : 'POST', body)) close();
+    },
+    extra: l ? [
+      h('button', { type: 'button', class: 'btn ghost danger', onclick: async () => {
+        if (!confirm(`Remove ${l.name} from your leads?`)) return;
+        if (await leadRequest(`/api/leads/${l.id}`, 'DELETE')) close();
+      } }, 'Remove'),
+      h('button', { type: 'button', class: 'btn ghost', onclick: async () => {
+        if (await fiveRequest('/api/five', 'POST', { name: l.name, context: l.company || l.source })) toast(`${l.name} is on your discipling list too`);
+      } }, '♡ Also pray for & pursue'),
+    ] : [],
+  });
+  const close = openModal(l ? l.name : 'Add someone', formEl);
+}
+
+function offersBoard() {
+  const offers = state.offers || [];
+  const mine = offers.filter((o) => o.userId === state.me.id);
+  const others = offers.filter((o) => o.userId !== state.me.id);
+  const card = (o) => h('article', { class: 'card offer-card', onclick: () => openOffer(o) },
+    h('div', { class: 'deal-head' }, h('h3', {}, o.title), o.price && h('span', { class: 'chip' }, o.price)),
+    o.audience && h('div', { class: 'small' }, h('b', {}, 'For: '), o.audience),
+    o.result && h('p', { class: 'muted small', style: 'margin:0' }, o.result),
+    h('div', { class: 'deal-foot small muted' }, avatar(o.userId, 'sm'), userName(o.userId)));
+  return h('div', { class: 'offers' },
+    h('p', { class: 'muted intro' }, 'What each of us offers. Know each other’s work so you can send people their way.'),
+    h('h2', { class: 'section-title' }, 'Your offer'),
+    mine.length ? h('div', { class: 'grid deal-grid' }, mine.map(card))
+      : h('div', { class: 'card offer-nudge' },
+        h('span', {}, 'A clear offer makes it easy for people to say yes, and for the group to refer you. For example: “I set up an AI assistant that answers your customers’ common questions and books appointments, so you get 5+ hours back a week. $1,500 setup.”'),
+        h('button', { class: 'btn small primary', onclick: () => openOfferEditor() }, 'Write your offer')),
+    h('h2', { class: 'section-title' }, 'Offers from the group'),
+    others.length ? h('div', { class: 'grid deal-grid' }, others.map(card))
+      : h('div', { class: 'card empty' }, 'No one else has shared an offer yet.'));
+}
+
+function openOffer(o) {
+  const isMine = o.userId === state.me.id;
+  const block = (title, text) => text && h('div', { class: 'detail-block' }, h('h4', {}, title), h('p', { html: formatText(text) }));
+  const close = openModal(o.title, h('div', {},
+    h('div', { style: 'display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap' },
+      o.price && h('span', { class: 'chip' }, o.price), avatar(o.userId, 'sm'), h('span', { class: 'small' }, userName(o.userId))),
+    block('Who it’s for', o.audience), block('The problem', o.problem), block('The result', o.result), block('Details', o.details),
+    h('div', { class: 'modal-foot' },
+      (isMine || state.me.role === 'admin') && h('button', { class: 'btn ghost danger', onclick: async () => {
+        if (!confirm('Delete this offer?')) return;
+        try {
+          await api(`/api/offers/${o.id}`, { method: 'DELETE' });
+          state.offers = state.offers.filter((x) => x.id !== o.id);
+          close();
+          renderShell();
+        } catch (err) { toast(err.message, 'error'); }
+      } }, 'Delete'),
+      h('span', { class: 'spacer' }),
+      isMine ? h('button', { class: 'btn primary', onclick: () => { close(); openOfferEditor(o); } }, 'Edit')
+        : h('button', { class: 'btn primary', onclick: () => { close(); startDm(o.userId); } }, `Refer someone to ${userName(o.userId).split(' ')[0]}`))));
+}
+
+function openOfferEditor(o) {
+  const formEl = form([
+    field('Your offer in a few words', h('input', { type: 'text', name: 'title', required: true, maxlength: 120, value: o?.title, placeholder: 'e.g. AI front desk for small businesses' })),
+    field('Who it’s for', h('input', { type: 'text', name: 'audience', maxlength: 300, value: o?.audience, placeholder: 'e.g. Home service businesses in Orange County' })),
+    field('The problem you solve', h('textarea', { name: 'problem', rows: 2, maxlength: 1000, value: o?.problem, placeholder: 'e.g. Missed calls and slow replies cost them jobs and evenings' })),
+    field('The result they get', h('textarea', { name: 'result', rows: 2, maxlength: 1000, value: o?.result, placeholder: 'e.g. Every call answered and booked, and 5+ hours back a week' })),
+    field('Price', h('input', { type: 'text', name: 'price', maxlength: 120, value: o?.price, placeholder: 'e.g. $1,500 setup + $200/mo' })),
+    field('Details', h('textarea', { name: 'details', rows: 3, maxlength: 4000, value: o?.details, placeholder: 'What’s included, how long it takes, any guarantee…' })),
+  ], {
+    submitLabel: o ? 'Save' : 'Share offer',
+    onSubmit: async (data) => {
+      const { offer } = await api(o ? `/api/offers/${o.id}` : '/api/offers', { method: o ? 'PATCH' : 'POST', body: data });
+      state.offers = [offer, ...(state.offers || []).filter((x) => x.id !== offer.id)];
+      close();
+      renderShell();
+    },
+  });
+  const close = openModal(o ? 'Edit your offer' : 'Share your offer', formEl);
+}
+
+function getLeadsGuide() {
+  return h('div', { class: 'get-leads' },
+    h('section', { class: 'card re-intro get-leads-intro' },
+      h('div', {},
+        h('h2', { class: 'serif' }, 'Be the one who introduces people to AI'),
+        h('p', {}, 'Most people, in business and in everyday life, know AI matters but don’t know where to start. When you’re the one who helps them, you become their trusted AI expert. The relationships come first, and the leads follow.'))),
+    h('h2', { class: 'section-title' }, 'Ways to get leads'),
+    h('div', { class: 'grid re-strategies' }, LEAD_WAYS.map(([title, text], i) => h('article', { class: 'card' },
+      h('div', { class: 'plan-num' }, `0${i + 1}`), h('h3', { style: 'font-size:15px;margin-top:4px' }, title),
+      h('p', { class: 'muted small', style: 'margin:6px 0 0' }, text)))),
+    h('h2', { class: 'section-title' }, 'Be known as the AI expert'),
+    h('ul', { class: 'card brand-tips' }, BRAND_TIPS.map((t) => h('li', {}, t))),
+    h('h2', { class: 'section-title' }, 'Content you can use'),
+    h('p', { class: 'muted intro' }, 'Copy one, make it yours, and post it this week. Swap in real stories as soon as you have them.'),
+    h('div', { class: 'content-grid' }, CONTENT_EXAMPLES.map((c) => {
+      const pre = h('pre', { class: 'content-text' }, c.text);
+      return h('article', { class: 'card content-card' },
+        h('div', { class: 'deal-head' }, h('div', {}, h('div', { class: 'plan-num' }, c.kind), h('h3', { style: 'font-size:15px' }, c.title)),
+          h('button', { class: 'btn small', onclick: () => copyText(c.text) }, 'Copy')),
+        pre);
+    })),
+    h('p', { class: 'small muted' }, 'Have a post or invite that worked? Share it in #ai-tools-and-content so others can use it too.'));
 }
 
 // ---------- suggestions ----------
@@ -3251,6 +3536,13 @@ function connectSocket() {
     if (!document.querySelector('.modal-backdrop') && ['realestate', 'home'].includes(state.route.name)) renderShell();
   });
 
+  socket.on('offer:changed', (o) => {
+    if (!state.offers) return;
+    state.offers = state.offers.filter((x) => x.id !== o.id);
+    if (!o.deleted) state.offers.unshift(o);
+    if (!document.querySelector('.modal-backdrop') && state.route.name === 'offers') renderShell();
+  });
+
   socket.on('suggestion:changed', (x) => {
     upsertSuggestion(x);
     const modalOpen = document.querySelector('.modal-backdrop');
@@ -3294,9 +3586,12 @@ async function logout(silent = false) {
 
 async function start() {
   applyBootstrap(await api('/api/bootstrap'));
-  const [projects, suggestions, playbooks, five, deals] = await Promise.all([
-    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), api('/api/five'), api('/api/deals'), loadCalls(),
+  const [projects, suggestions, playbooks, five, deals, offers, leads] = await Promise.all([
+    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), api('/api/five'), api('/api/deals'),
+    api('/api/offers'), api('/api/leads'), loadCalls(),
   ]);
+  state.offers = offers.offers;
+  state.leads = leads.leads;
   state.five = five;
   state.deals = deals.deals;
   state.projects = projects.projects;

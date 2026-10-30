@@ -604,6 +604,37 @@ textarea { resize: vertical; min-height: 80px; }
 .re-page .deal-disclaimer { margin-top: 14px; }
 @media (max-width: 760px) { .re-intro { grid-template-columns: 1fr; } }
 
+/* ---------- offers & leads ---------- */
+.leads, .offers, .get-leads { display: grid; gap: 14px; }
+.leads .intro, .offers .intro, .get-leads .intro { margin: 0; }
+.offer-nudge { display: flex; gap: 14px; align-items: center; justify-content: space-between; background: var(--accent-soft); border-color: transparent; box-shadow: none; }
+.offer-nudge .btn { flex: none; }
+.five-stat.due b { color: var(--danger); }
+.lead-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(230px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+.lead-col { display: grid; align-content: start; gap: 8px; padding: 10px; border-radius: var(--radius); background: var(--surface-2); min-height: 160px; scroll-snap-align: start; }
+.lead-col.quiet { opacity: .8; }
+.lead-col-head { display: flex; justify-content: space-between; align-items: baseline; }
+.lead-hint { margin-top: -4px; line-height: 1.35; }
+.lead-card { display: grid; gap: 4px; padding: 10px 12px; cursor: pointer; }
+@media (hover: hover) { .lead-card:hover { border-color: var(--accent); } }
+.lead-value { font-weight: 600; color: var(--ok); }
+.lead-next { color: var(--muted); }
+.lead-next.due { color: var(--danger); font-weight: 600; }
+.lead-move { justify-self: start; padding: 3px 8px; font-size: 12px; margin-top: 2px; }
+.lead-add { min-height: 64px; }
+.offer-card { display: grid; gap: 6px; cursor: pointer; }
+@media (hover: hover) { .offer-card:hover { border-color: var(--accent); } }
+.get-leads-intro { grid-template-columns: 1fr; }
+.brand-tips { margin: 0; padding: 16px 16px 16px 34px; display: grid; gap: 6px; }
+.content-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.content-card { display: grid; gap: 10px; align-content: start; }
+.content-text { margin: 0; white-space: pre-wrap; font: inherit; font-size: 13.5px; line-height: 1.55; padding: 12px; border-radius: 10px; background: var(--surface-2); max-height: 260px; overflow: auto; }
+@media (max-width: 560px) {
+  .offer-nudge { flex-direction: column; align-items: flex-start; }
+  .content-grid { grid-template-columns: 1fr; }
+  .leads .five-meter { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ---------- calls: rhythm ---------- */
 .rhythm-card { display: grid; gap: 6px; }
 .rhythm-card h3 { font-size: 16px; }

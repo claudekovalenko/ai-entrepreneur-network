@@ -15,6 +15,7 @@ const REVENUE_RANGES = ['', 'pre-revenue', 'under-1k', '1k-5k', '5k-10k', '10k-p
 const PIPELINE_STAGES = ['build', 'generate', 'set-aside', 'invest', 'freed'];
 const DEAL_STATUSES = ['looking', 'analyzing', 'offer', 'owned', 'passed'];
 const PROPERTY_TYPES = ['single-family', 'multi-family', 'condo', 'commercial', 'land', 'other'];
+const LEAD_STAGES = ['lead', 'conversation', 'proposal', 'client', 'referral', 'not-now'];
 const MAX_MESSAGE = 4000;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
@@ -1204,6 +1205,127 @@ on('POST', '/api/deals/:id/comments', async ({ db, user, params, body, emit }) =
   await db.prepare('INSERT INTO deal_comments (deal_id, user_id, body) VALUES (?, ?, ?)').bind(d.id, user.id, text).run();
   await db.prepare(`UPDATE deals SET updated_at = ${NOW} WHERE id = ?`).bind(d.id).run();
   return { deal: await dealChanged(db, d.id, emit) };
+});
+
+// ----- offers and leads -----
+
+const serializeOffer = (o) => ({
+  id: o.id, userId: o.user_id, title: o.title, audience: o.audience, problem: o.problem,
+  result: o.result, price: o.price, details: o.details, createdAt: o.created_at, updatedAt: o.updated_at,
+});
+
+function offerFields(body, existing = {}) {
+  const pick = (key) => body[key] ?? existing[key] ?? '';
+  return {
+    title: str(pick('title'), { max: 120, required: true, field: 'Offer name' }),
+    audience: str(pick('audience'), { max: 300, field: 'Who it’s for' }),
+    problem: str(pick('problem'), { max: 1000, field: 'Problem' }),
+    result: str(pick('result'), { max: 1000, field: 'Result' }),
+    price: str(pick('price'), { max: 120, field: 'Price' }),
+    details: str(pick('details'), { max: 4000, field: 'Details' }),
+  };
+}
+
+async function loadOffer(db, params) {
+  const o = await db.prepare('SELECT * FROM offers WHERE id = ?').bind(intParam(params.id)).first();
+  if (!o) throw new HttpError(404, 'Offer not found');
+  return o;
+}
+
+async function offerChanged(db, id, emit) {
+  const o = await db.prepare('SELECT * FROM offers WHERE id = ?').bind(id).first();
+  const out = o ? serializeOffer(o) : { id, deleted: true };
+  emit('offer:changed', out);
+  return out;
+}
+
+on('GET', '/api/offers', async ({ db }) => ({
+  offers: (await all(db.prepare('SELECT * FROM offers ORDER BY updated_at DESC'))).map(serializeOffer),
+}));
+
+on('POST', '/api/offers', async ({ db, user, body, emit }) => {
+  const f = offerFields(body);
+  const { n } = await db.prepare('SELECT COUNT(*) AS n FROM offers WHERE user_id = ?').bind(user.id).first();
+  if (n >= 10) throw new HttpError(400, 'You can share up to 10 offers');
+  const row = await db.prepare(`INSERT INTO offers (user_id, title, audience, problem, result, price, details)
+    VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(user.id, f.title, f.audience, f.problem, f.result, f.price, f.details).first();
+  return { offer: await offerChanged(db, row.id, emit) };
+});
+
+on('PATCH', '/api/offers/:id', async ({ db, user, params, body, emit }) => {
+  const o = await loadOffer(db, params);
+  if (o.user_id !== user.id) throw new HttpError(403, 'Only the person who shared this offer can edit it');
+  const f = offerFields(body, o);
+  await db.prepare(`UPDATE offers SET title = ?, audience = ?, problem = ?, result = ?, price = ?, details = ?,
+    updated_at = ${NOW} WHERE id = ?`).bind(f.title, f.audience, f.problem, f.result, f.price, f.details, o.id).run();
+  return { offer: await offerChanged(db, o.id, emit) };
+});
+
+on('DELETE', '/api/offers/:id', async ({ db, user, params, emit }) => {
+  const o = await loadOffer(db, params);
+  if (o.user_id !== user.id && user.role !== 'admin') throw new HttpError(403, 'Only the person who shared this offer can delete it');
+  await db.prepare('DELETE FROM offers WHERE id = ?').bind(o.id).run();
+  await offerChanged(db, o.id, emit);
+  return { ok: true };
+});
+
+const serializeLead = (l) => ({
+  id: l.id, name: l.name, company: l.company, source: l.source, stage: l.stage, value: l.value,
+  nextStep: l.next_step, nextDate: l.next_date, notes: l.notes, createdAt: l.created_at, updatedAt: l.updated_at,
+});
+
+function leadFields(body, existing = {}) {
+  const pick = (key, column) => body[key] ?? existing[column];
+  const stage = pick('stage', 'stage') ?? 'lead';
+  if (!LEAD_STAGES.includes(stage)) throw new HttpError(400, 'Unknown stage');
+  const nextDate = str(pick('nextDate', 'next_date') ?? '', { max: 10 }) || null;
+  if (nextDate && !/^\d{4}-\d{2}-\d{2}$/.test(nextDate)) throw new HttpError(400, 'Next step date must be a date');
+  return {
+    name: str(pick('name', 'name') ?? '', { max: 120, required: true, field: 'Name' }),
+    company: str(pick('company', 'company') ?? '', { max: 120, field: 'Business' }),
+    source: str(pick('source', 'source') ?? '', { max: 120, field: 'Where they came from' }),
+    stage,
+    value: num(pick('value', 'value') ?? 0, { max: 1e8, field: 'Value', integer: true }),
+    next_step: str(pick('nextStep', 'next_step') ?? '', { max: 300, field: 'Next step' }),
+    next_date: nextDate,
+    notes: str(pick('notes', 'notes') ?? '', { max: 4000, field: 'Notes' }),
+  };
+}
+
+const LEAD_COLUMNS = ['name', 'company', 'source', 'stage', 'value', 'next_step', 'next_date', 'notes'];
+const myLeads = async (db, userId) => ({
+  leads: (await all(db.prepare('SELECT * FROM leads WHERE user_id = ? ORDER BY updated_at DESC').bind(userId))).map(serializeLead),
+});
+
+async function loadMyLead(db, user, id) {
+  const l = await db.prepare('SELECT * FROM leads WHERE id = ? AND user_id = ?').bind(intParam(id), user.id).first();
+  if (!l) throw new HttpError(404, 'Lead not found');
+  return l;
+}
+
+on('GET', '/api/leads', async ({ db, user }) => myLeads(db, user.id));
+
+on('POST', '/api/leads', async ({ db, user, body }) => {
+  const f = leadFields(body);
+  const { n } = await db.prepare('SELECT COUNT(*) AS n FROM leads WHERE user_id = ?').bind(user.id).first();
+  if (n >= 1000) throw new HttpError(400, 'Your list can hold up to 1000 leads');
+  await db.prepare(`INSERT INTO leads (user_id, ${LEAD_COLUMNS.join(', ')}) VALUES (?, ${LEAD_COLUMNS.map(() => '?').join(', ')})`)
+    .bind(user.id, ...LEAD_COLUMNS.map((c) => f[c])).run();
+  return myLeads(db, user.id);
+});
+
+on('PATCH', '/api/leads/:id', async ({ db, user, params, body }) => {
+  const l = await loadMyLead(db, user, params.id);
+  const f = leadFields(body, l);
+  await db.prepare(`UPDATE leads SET ${LEAD_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ${NOW} WHERE id = ?`)
+    .bind(...LEAD_COLUMNS.map((c) => f[c]), l.id).run();
+  return myLeads(db, user.id);
+});
+
+on('DELETE', '/api/leads/:id', async ({ db, user, params }) => {
+  const l = await loadMyLead(db, user, params.id);
+  await db.prepare('DELETE FROM leads WHERE id = ?').bind(l.id).run();
+  return myLeads(db, user.id);
 });
 
 // ----- who I'm discipling: people each member prays for and pursues (private to that member) -----

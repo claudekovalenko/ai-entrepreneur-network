@@ -620,3 +620,25 @@ test('pipeline: members mark their step; real estate deals with partners and com
   assert.equal((await carol(`/api/deals/${id}`, { method: 'DELETE' })).status, 403);
   assert.equal((await alice(`/api/deals/${id}`, { method: 'DELETE' })).status, 200, 'admins can remove deals');
 });
+
+test('offers are shared with the group; leads are private to each member', async () => {
+  const offer = await bob('/api/offers', { method: 'POST', body: { title: 'AI front desk', audience: 'Home service businesses', price: '$1,500' } });
+  assert.equal(offer.status, 200);
+  assert.ok((await carol('/api/offers')).data.offers.some((o) => o.id === offer.data.offer.id));
+  assert.equal((await carol(`/api/offers/${offer.data.offer.id}`, { method: 'PATCH', body: { title: 'X' } })).status, 403);
+  assert.equal((await bob(`/api/offers/${offer.data.offer.id}`, { method: 'PATCH', body: { price: '$2,000' } })).data.offer.title, 'AI front desk');
+
+  let leads = (await bob('/api/leads', { method: 'POST', body: { name: 'Mark', company: 'Roofing', value: 1500, nextStep: 'Coffee', nextDate: '2026-11-03' } })).data.leads;
+  assert.equal(leads.length, 1);
+  assert.equal(leads[0].stage, 'lead');
+  assert.equal((await bob('/api/leads', { method: 'POST', body: { name: 'X', stage: 'won' } })).status, 400);
+  const id = leads[0].id;
+  leads = (await bob(`/api/leads/${id}`, { method: 'PATCH', body: { stage: 'conversation' } })).data.leads;
+  assert.equal(leads[0].stage, 'conversation');
+  assert.equal(leads[0].value, 1500, 'other fields keep their values');
+
+  assert.equal((await carol('/api/leads')).data.leads.length, 0, 'leads are private');
+  assert.equal((await carol(`/api/leads/${id}`, { method: 'PATCH', body: { stage: 'client' } })).status, 404);
+  assert.equal((await alice(`/api/leads/${id}`, { method: 'DELETE' })).status, 404, 'not even admins');
+  assert.equal((await bob(`/api/leads/${id}`, { method: 'DELETE' })).data.leads.length, 0);
+});
