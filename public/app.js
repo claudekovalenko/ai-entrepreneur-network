@@ -1043,7 +1043,7 @@ const VISION = {
     ['Share', 'Pass on the tools, prompts, tutorials, and lessons that are working for you, so no one has to learn everything alone.'],
     ['Collaborate', 'Post the project you are building and the help you need. Offer your skills to someone else’s venture.'],
     ['Gather', 'Meet on Zoom every other week and at quarterly gatherings to pray, workshop business problems, celebrate progress, and follow up on what happened since the last call.'],
-    ['Invest', 'Follow the pipeline: build with AI, grow steady income, set aside, and invest in income-producing real estate, so that in time more of our hours are freed for ministry.'],
+    ['Provide', 'Follow the pipeline: build with AI, grow steady income, set aside, and invest in income-producing real estate, so our families are provided for with as little of our time as possible.'],
     ['Disciple', 'Pray for and pursue the people God has put in your life. Keep track of who you’re discipling, and tell the story in #next-steps when someone takes a step toward God.'],
   ],
   values: [
@@ -2016,10 +2016,11 @@ const PIPELINE = [
     links: [['Look at deals', '#/pipeline/deals']],
   },
   {
-    key: 'freed', title: 'Freed for ministry', icon: '✝',
-    text: 'Income from work that doesn’t need your hours covers your needs, so your time goes to God, your family, and making disciples.',
+    // Stored as 'freed' for members who already picked this step.
+    key: 'freed', title: 'Provided for', icon: '◇',
+    text: 'Income from work and property that need little of your time provides for your family and supports the work of the kingdom.',
     ready: [],
-    links: [['Who am I discipling?', '#/discipling']],
+    links: [],
   },
 ];
 
@@ -2093,7 +2094,7 @@ function pipelineProcess() {
   const step = PIPELINE.find((x) => x.key === open);
   const onStep = people.filter((u) => (u.pipelineStage ?? 'build') === open);
   return h('div', { class: 'pipeline' },
-    h('p', { class: 'muted intro' }, 'The aim isn’t a bigger number. It’s to move, step by step, from work that takes our hours to income that doesn’t, so more of our time goes to God, our families, and making disciples. Mark the step you’re on so we can help each other along.'),
+    h('p', { class: 'muted intro' }, 'We seek first the kingdom at every step, not just at the end. The pipeline is how we provide for our families and support the work of the kingdom with as little of our time as possible. Mark the step you’re on so we can help each other along.'),
     h('ol', { class: 'pipe-steps' }, PIPELINE.map((x, i) => {
       const here = people.filter((u) => (u.pipelineStage ?? 'build') === x.key);
       return h('li', {},
