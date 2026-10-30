@@ -1094,6 +1094,13 @@ const PLAN = {
     question: 'Did anyone take a next step toward God?',
     text: 'If so, how? Tell the story. We reflect and celebrate what God is doing, so we notice what is happening now rather than focusing only on future plans.',
   },
+  // What we're learning as we go.
+  learnings: [
+    ['Be the one who introduces people to AI',
+      'Most business owners know they should be using AI but don’t know where to start. When we’re the ones who walk them through it, we become their trusted AI expert, and that gives us a genuine place in their lives.'],
+    ['Relationships are key',
+      'The business, the referrals, and the conversations about God all grow out of trusted relationships. We invest in people first, not just in the next client.'],
+  ],
   path: [
     ['Meet one-on-one', 'Talk with a current member.'],
     ['Experience the group', 'Three calls over six weeks.'],
@@ -1186,6 +1193,12 @@ function visionContent({ isPublic = false } = {}) {
             h('p', {}, PLAN.measure.text),
             planHere(['Tell a story in #next-steps', nextStepsHash()], isPublic)))),
       h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'What we’re learning'),
+        h('div', { class: 'plan-pair learnings' }, PLAN.learnings.map(([title, text], i) => h('article', { class: 'card plan-part' },
+          h('div', { class: 'plan-num' }, `Lesson ${i + 1}`),
+          h('h3', {}, title),
+          h('p', {}, text))))),
+      h('section', { class: 'vision-block' },
         h('h2', { class: 'serif' }, 'First things first'),
         h('p', {}, 'We calendar time in this order:'),
         h('ol', { class: 'plan-priorities' }, PLAN.priorities.map((p) => h('li', {}, p)))),
@@ -1250,6 +1263,7 @@ const TOUR = [
     body: [
       'Many of us feel called to ministry but spend most of our hours earning a living. AI has changed what one person can build.',
       'The goal is businesses that run with less of our time. Success here is measured in time given back, not in a bigger number.',
+      'We’re learning that being the one who introduces people to AI earns trust, and that relationships are key: the business and the conversations about God both grow out of them.',
     ],
     note: 'This is not hustle culture, and no venture is worth losing time with the Lord or your family. Sabbath rest is part of the plan.',
   },
@@ -1993,8 +2007,8 @@ async function openProject(id) {
 const PIPELINE = [
   {
     key: 'build', title: 'Build with AI', icon: '⚙',
-    text: 'Use AI to launch a business or service that solves a real problem for the right customers.',
-    ready: ['You have paying customers', 'The work is repeatable, not one-off'],
+    text: 'Be the one who introduces the people and businesses around you to AI. Help them first; the trust you earn becomes relationships, and a business that solves real problems grows from there.',
+    ready: ['People come to you as their go-to for AI', 'You have paying customers', 'The work is repeatable, not one-off'],
     links: [['Share a project', '#/projects'], ['See what’s working', '#/working']],
   },
   {

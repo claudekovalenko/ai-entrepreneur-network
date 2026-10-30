@@ -449,6 +449,7 @@ textarea { resize: vertical; min-height: 80px; }
 .plan-pair { display: grid; gap: 14px; grid-template-columns: 1fr 1fr; margin-top: 14px; }
 @media (max-width: 700px) { .plan-pair { grid-template-columns: 1fr; } }
 .plan-part { display: flex; flex-direction: column; gap: 8px; }
+.plan-pair.learnings { margin-top: 0; }
 .plan-part h3 { font-size: 17px; }
 .plan-part p { margin: 0; font-size: 14.5px; color: var(--muted); }
 .plan-num { font-size: 13px; font-weight: 700; letter-spacing: .08em; color: var(--accent-strong); }
