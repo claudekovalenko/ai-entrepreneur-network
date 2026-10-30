@@ -12,6 +12,9 @@ const PROJECT_STATUSES = ['looking', 'in-progress', 'launched', 'paused'];
 const SUGGESTION_STATUSES = ['open', 'planned', 'done', 'not-now'];
 const PLAYBOOK_KINDS = ['case', 'blueprint'];
 const REVENUE_RANGES = ['', 'pre-revenue', 'under-1k', '1k-5k', '5k-10k', '10k-plus'];
+const PIPELINE_STAGES = ['build', 'generate', 'set-aside', 'invest', 'freed'];
+const DEAL_STATUSES = ['looking', 'analyzing', 'offer', 'owned', 'passed'];
+const PROPERTY_TYPES = ['single-family', 'multi-family', 'condo', 'commercial', 'land', 'other'];
 const MAX_MESSAGE = 4000;
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 
@@ -58,6 +61,7 @@ const publicUser = (u) => u && ({
   id: u.id, name: u.name, headline: u.headline, bio: u.bio,
   skills: u.skills, ministry: u.ministry, role: u.role, createdAt: u.created_at,
   stage: u.stage ?? 'member', committedOn: u.committed_on ?? null,
+  pipelineStage: u.pipeline_stage ?? 'build',
 });
 const privateUser = (u) => ({ ...publicUser(u), email: u.email });
 
@@ -445,8 +449,10 @@ on('PATCH', '/api/me', async ({ db, user: me, body, emit }) => {
   const bio = str(body.bio ?? me.bio, { max: 1000, field: 'Bio' });
   const skills = str(body.skills ?? me.skills, { max: 300, field: 'Skills' });
   const ministry = str(body.ministry ?? me.ministry, { max: 300, field: 'Ministry' });
-  const user = await db.prepare('UPDATE users SET name = ?, headline = ?, bio = ?, skills = ?, ministry = ? WHERE id = ? RETURNING *')
-    .bind(name, headline, bio, skills, ministry, me.id).first();
+  const pipelineStage = body.pipelineStage ?? me.pipeline_stage ?? 'build';
+  if (!PIPELINE_STAGES.includes(pipelineStage)) throw new HttpError(400, 'Unknown pipeline step');
+  const user = await db.prepare('UPDATE users SET name = ?, headline = ?, bio = ?, skills = ?, ministry = ?, pipeline_stage = ? WHERE id = ? RETURNING *')
+    .bind(name, headline, bio, skills, ministry, pipelineStage, me.id).first();
   emit('user:updated', publicUser(user));
   return { user: privateUser(user) };
 });
@@ -1066,6 +1072,138 @@ on('POST', '/api/calls/:id/rsvp', async ({ db, user, params, body, emit }) => {
   await db.prepare(stmt).bind(c.id, occurrence, user.id).run();
   emit('calls:changed', null);
   return { call: await callView(db, c.id) };
+});
+
+// ----- real estate deals the group is looking into -----
+
+function num(value, { min = 0, max, field, integer = false }) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
+    throw new HttpError(400, `${field} must be a number from ${min} to ${max}`);
+  }
+  return n;
+}
+
+function dealFields(body, existing = {}) {
+  const pick = (key, column, fallback) => body[key] ?? existing[column] ?? fallback;
+  const status = pick('status', 'status', 'looking');
+  if (!DEAL_STATUSES.includes(status)) throw new HttpError(400, 'Unknown deal status');
+  const propertyType = pick('propertyType', 'property_type', 'single-family');
+  if (!PROPERTY_TYPES.includes(propertyType)) throw new HttpError(400, 'Unknown property type');
+  const link = str(pick('link', 'link', ''), { max: 500, field: 'Listing link' });
+  if (link && !/^https?:\/\//i.test(link)) throw new HttpError(400, 'Listing link must start with http:// or https://');
+  return {
+    title: str(pick('title', 'title', ''), { max: 120, required: true, field: 'Title' }),
+    location: str(pick('location', 'location', ''), { max: 200, field: 'Location' }),
+    property_type: propertyType,
+    status,
+    price: num(pick('price', 'price', 0), { max: 1e9, field: 'Price', integer: true }),
+    down_pct: num(pick('downPct', 'down_pct', 25), { max: 100, field: 'Down payment %' }),
+    rate: num(pick('rate', 'rate', 7), { max: 30, field: 'Interest rate' }),
+    years: num(pick('years', 'years', 30), { min: 1, max: 40, field: 'Loan years', integer: true }),
+    closing_pct: num(pick('closingPct', 'closing_pct', 3), { max: 20, field: 'Closing costs %' }),
+    rent: num(pick('rent', 'rent', 0), { max: 1e7, field: 'Monthly rent', integer: true }),
+    expenses: num(pick('expenses', 'expenses', 0), { max: 1e7, field: 'Monthly expenses', integer: true }),
+    link,
+    notes: str(pick('notes', 'notes', ''), { max: 4000, field: 'Notes' }),
+  };
+}
+
+const DEAL_COLUMNS = ['title', 'location', 'property_type', 'status', 'price', 'down_pct', 'rate', 'years', 'closing_pct', 'rent', 'expenses', 'link', 'notes'];
+
+async function serializeDeals(db, deals, { detail = false } = {}) {
+  if (!deals.length) return [];
+  const ids = JSON.stringify(deals.map((d) => d.id));
+  const [partners, counts, comments] = await db.batch([
+    db.prepare('SELECT deal_id, user_id FROM deal_partners WHERE deal_id IN (SELECT value FROM json_each(?)) ORDER BY created_at').bind(ids),
+    db.prepare('SELECT deal_id, COUNT(*) AS n FROM deal_comments WHERE deal_id IN (SELECT value FROM json_each(?)) GROUP BY deal_id').bind(ids),
+    db.prepare('SELECT * FROM deal_comments WHERE ? AND deal_id IN (SELECT value FROM json_each(?)) ORDER BY id').bind(detail ? 1 : 0, ids),
+  ]);
+  const countFor = new Map(counts.results.map((r) => [r.deal_id, r.n]));
+  return deals.map((d) => {
+    const out = {
+      id: d.id, userId: d.user_id, title: d.title, location: d.location, propertyType: d.property_type, status: d.status,
+      price: d.price, downPct: d.down_pct, rate: d.rate, years: d.years, closingPct: d.closing_pct,
+      rent: d.rent, expenses: d.expenses, link: d.link, notes: d.notes,
+      createdAt: d.created_at, updatedAt: d.updated_at,
+      partners: partners.results.filter((p) => p.deal_id === d.id).map((p) => p.user_id),
+      commentCount: countFor.get(d.id) ?? 0,
+    };
+    if (detail) {
+      out.comments = comments.results.filter((c) => c.deal_id === d.id)
+        .map((c) => ({ id: c.id, userId: c.user_id, body: c.body, createdAt: c.created_at }));
+    }
+    return out;
+  });
+}
+
+async function loadDeal(db, params) {
+  const d = await db.prepare('SELECT * FROM deals WHERE id = ?').bind(intParam(params.id)).first();
+  if (!d) throw new HttpError(404, 'Deal not found');
+  return d;
+}
+
+async function dealChanged(db, id, emit) {
+  const d = await db.prepare('SELECT * FROM deals WHERE id = ?').bind(id).first();
+  if (!d) {
+    emit('deal:changed', { id, deleted: true });
+    return null;
+  }
+  const [detail] = await serializeDeals(db, [d], { detail: true });
+  const { comments, ...summary } = detail;
+  emit('deal:changed', summary);
+  return detail;
+}
+
+on('GET', '/api/deals', async ({ db }) => ({
+  deals: await serializeDeals(db, await all(db.prepare('SELECT * FROM deals ORDER BY updated_at DESC'))),
+}));
+
+on('POST', '/api/deals', async ({ db, user, body, emit }) => {
+  const f = dealFields(body);
+  const row = await db.prepare(`INSERT INTO deals (user_id, ${DEAL_COLUMNS.join(', ')})
+    VALUES (?, ${DEAL_COLUMNS.map(() => '?').join(', ')}) RETURNING id`).bind(user.id, ...DEAL_COLUMNS.map((c) => f[c])).first();
+  return { deal: await dealChanged(db, row.id, emit) };
+});
+
+on('GET', '/api/deals/:id', async ({ db, params }) => {
+  const [deal] = await serializeDeals(db, [await loadDeal(db, params)], { detail: true });
+  return { deal };
+});
+
+on('PATCH', '/api/deals/:id', async ({ db, user, params, body, emit }) => {
+  const d = await loadDeal(db, params);
+  if (d.user_id !== user.id) throw new HttpError(403, 'Only the person who posted this deal can edit it');
+  const f = dealFields(body, d);
+  await db.prepare(`UPDATE deals SET ${DEAL_COLUMNS.map((c) => `${c} = ?`).join(', ')}, updated_at = ${NOW} WHERE id = ?`)
+    .bind(...DEAL_COLUMNS.map((c) => f[c]), d.id).run();
+  return { deal: await dealChanged(db, d.id, emit) };
+});
+
+on('DELETE', '/api/deals/:id', async ({ db, user, params, emit }) => {
+  const d = await loadDeal(db, params);
+  if (d.user_id !== user.id && user.role !== 'admin') throw new HttpError(403, 'Only the person who posted this deal can delete it');
+  await db.prepare('DELETE FROM deals WHERE id = ?').bind(d.id).run();
+  await dealChanged(db, d.id, emit);
+  return { ok: true };
+});
+
+on('POST', '/api/deals/:id/partner', async ({ db, user, params, body, emit }) => {
+  const d = await loadDeal(db, params);
+  if (d.user_id === user.id) throw new HttpError(400, 'This is your deal');
+  const stmt = body.interested !== false
+    ? 'INSERT OR IGNORE INTO deal_partners (deal_id, user_id) VALUES (?, ?)'
+    : 'DELETE FROM deal_partners WHERE deal_id = ? AND user_id = ?';
+  await db.prepare(stmt).bind(d.id, user.id).run();
+  return { deal: await dealChanged(db, d.id, emit) };
+});
+
+on('POST', '/api/deals/:id/comments', async ({ db, user, params, body, emit }) => {
+  const d = await loadDeal(db, params);
+  const text = str(body.body, { max: 2000, required: true, field: 'Comment' });
+  await db.prepare('INSERT INTO deal_comments (deal_id, user_id, body) VALUES (?, ?, ?)').bind(d.id, user.id, text).run();
+  await db.prepare(`UPDATE deals SET updated_at = ${NOW} WHERE id = ?`).bind(d.id).run();
+  return { deal: await dealChanged(db, d.id, emit) };
 });
 
 // ----- who I'm discipling: people each member prays for and pursues (private to that member) -----

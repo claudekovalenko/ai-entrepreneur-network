@@ -203,6 +203,7 @@ function parseRoute() {
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
   if (parts[0] === 'discipling' || parts[0] === 'five') return { name: 'discipling' };
+  if (parts[0] === 'pipeline') return { name: 'pipeline', tab: parts[1] === 'deals' ? 'deals' : 'process', id: parts[2] && Number(parts[2]) };
   if (parts[0] === 'tour') return { name: 'tour', step: Math.max(0, (Number(parts[1]) || 1) - 1) };
   if (parts[0] === 'chat') return { name: 'chat' };
   return { name: 'home' };
@@ -363,6 +364,7 @@ function renderSidebar() {
       navItem({ href: '#/tour', icon: h('span', { class: 'icon' }, '➜'), label: 'Start here', active: r.name === 'tour' }),
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/discipling', icon: h('span', { class: 'icon' }, '♡'), label: 'Who I’m discipling', active: r.name === 'discipling' }),
+      navItem({ href: '#/pipeline', icon: h('span', { class: 'icon' }, '↗'), label: 'Pipeline', active: r.name === 'pipeline' }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
@@ -444,7 +446,7 @@ function renderTabBar() {
   return h('nav', { class: 'tabbar', 'aria-label': 'Main' },
     tab('#/home', tabIcon('home'), 'Home', r === 'home'),
     tab('#/chat', tabIcon('chat'), 'Chat', r === 'chat' || r === 'room', unread),
-    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions'].includes(r)),
+    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions', 'pipeline'].includes(r)),
     tab('#/calls', tabIcon('calls'), 'Calls', r === 'calls'),
     h('button', { class: 'tabbar-item', type: 'button', onclick: () => document.querySelector('.shell').classList.add('nav-open') },
       h('span', { class: 'tabbar-icon', 'aria-hidden': 'true' }, tabIcon('more')), h('span', {}, 'More')));
@@ -819,6 +821,7 @@ function renderMain() {
   else if (r.name === 'members') main.append(...renderMembers());
   else if (r.name === 'vision') main.append(...renderVision());
   else if (r.name === 'discipling') main.append(...renderDiscipling());
+  else if (r.name === 'pipeline') main.append(...renderPipeline());
   else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
@@ -1040,6 +1043,7 @@ const VISION = {
     ['Share', 'Pass on the tools, prompts, tutorials, and lessons that are working for you, so no one has to learn everything alone.'],
     ['Collaborate', 'Post the project you are building and the help you need. Offer your skills to someone else’s venture.'],
     ['Gather', 'Meet on Zoom every other week and at quarterly gatherings to pray, workshop business problems, celebrate progress, and follow up on what happened since the last call.'],
+    ['Invest', 'Follow the pipeline: build with AI, grow steady income, set aside, and invest in income-producing real estate, so that in time more of our hours are freed for ministry.'],
     ['Disciple', 'Pray for and pursue the people God has put in your life. Keep track of who you’re discipling, and tell the story in #next-steps when someone takes a step toward God.'],
   ],
   values: [
@@ -1984,6 +1988,287 @@ async function openProject(id) {
   });
 }
 
+// ---------- pipeline: from building with AI to investing in real estate ----------
+
+const PIPELINE = [
+  {
+    key: 'build', title: 'Build with AI', icon: '⚙',
+    text: 'Use AI to launch a business or service that solves a real problem for the right customers.',
+    ready: ['You have paying customers', 'The work is repeatable, not one-off'],
+    links: [['Share a project', '#/projects'], ['See what’s working', '#/working']],
+  },
+  {
+    key: 'generate', title: 'Generate income', icon: '◎',
+    text: 'Grow it into steady income that doesn’t need all your hours, using systems, automation, and the right people.',
+    ready: ['Income is steady month to month', 'It runs on fewer of your hours each month'],
+    links: [['Blueprints', '#/working/blueprints']],
+  },
+  {
+    key: 'set-aside', title: 'Set aside', icon: '▣',
+    text: 'Give first, keep a reserve, and save toward a down payment instead of raising your lifestyle.',
+    ready: ['Giving comes first', 'You have several months of reserves', 'You’ve saved toward a down payment'],
+    links: [],
+  },
+  {
+    key: 'invest', title: 'Invest in real estate', icon: '⌂',
+    text: 'Buy property that produces income, on your own or with partners from the group. Look at deals together before anyone buys.',
+    ready: ['Your property pays for itself and then some', 'You know how it will be managed without taking your time'],
+    links: [['Look at deals', '#/pipeline/deals']],
+  },
+  {
+    key: 'freed', title: 'Freed for ministry', icon: '✝',
+    text: 'Income from work that doesn’t need your hours covers your needs, so your time goes to God, your family, and making disciples.',
+    ready: [],
+    links: [['Who am I discipling?', '#/discipling']],
+  },
+];
+
+const DEAL_STATUS_LABELS = { looking: 'Looking', analyzing: 'Running numbers', offer: 'Offer made', owned: 'Bought', passed: 'Passed' };
+const PROPERTY_LABELS = { 'single-family': 'Single-family', 'multi-family': 'Multi-family', condo: 'Condo / townhome', commercial: 'Commercial', land: 'Land', other: 'Other' };
+
+const money = (n) => (Number.isFinite(n) ? n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }) : '—');
+const pct = (n) => (Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : '—');
+
+// The usual rental math: loan payment, monthly cash flow, cap rate, and cash-on-cash return.
+function dealMath(d) {
+  const price = Number(d.price) || 0;
+  const down = price * (Number(d.downPct) || 0) / 100;
+  const loan = price - down;
+  const r = (Number(d.rate) || 0) / 100 / 12;
+  const n = (Number(d.years) || 30) * 12;
+  const payment = loan <= 0 ? 0 : r ? (loan * r) / (1 - (1 + r) ** -n) : loan / n;
+  const cashIn = down + price * (Number(d.closingPct) || 0) / 100;
+  const rent = Number(d.rent) || 0;
+  const expenses = Number(d.expenses) || 0;
+  const cashFlow = rent - expenses - payment;
+  return {
+    down, loan, payment, cashIn, cashFlow,
+    capRate: price ? ((rent - expenses) * 12) / price : NaN,
+    cashOnCash: cashIn ? (cashFlow * 12) / cashIn : NaN,
+  };
+}
+
+function upsertDeal(d) {
+  if (!state.deals) return;
+  if (d.deleted) state.deals = state.deals.filter((x) => x.id !== d.id);
+  else {
+    const { comments, ...summary } = d;
+    const i = state.deals.findIndex((x) => x.id === d.id);
+    if (i >= 0) state.deals[i] = summary; else state.deals.unshift(summary);
+    state.deals.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+}
+
+let pipelineOpen = null; // the step shown in detail
+
+async function setPipelineStage(key) {
+  try {
+    const { user } = await api('/api/me', { method: 'PATCH', body: { pipelineStage: key } });
+    state.me = user;
+    state.users.set(user.id, { ...state.users.get(user.id), ...user });
+    pipelineOpen = key;
+    renderShell();
+    toast(`You’re on “${PIPELINE.find((x) => x.key === key).title}”`);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+function renderPipeline() {
+  const r = state.route;
+  const tabs = h('div', { class: 'tabs', role: 'tablist' },
+    h('a', { class: `tab ${r.tab === 'process' ? 'on' : ''}`, href: '#/pipeline', role: 'tab', 'aria-selected': String(r.tab === 'process') }, 'The process'),
+    h('a', { class: `tab ${r.tab === 'deals' ? 'on' : ''}`, href: '#/pipeline/deals', role: 'tab', 'aria-selected': String(r.tab === 'deals') },
+      'Real estate deals', state.deals?.length ? h('span', { class: 'tab-count' }, state.deals.length) : null));
+  return [
+    topbar('Pipeline', 'From building with AI to investing in real estate',
+      r.tab === 'deals' ? [h('button', { class: 'btn primary', onclick: () => openDealEditor() }, '+ Add a deal')] : []),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner' }, tabs, r.tab === 'deals' ? dealsBoard() : pipelineProcess())),
+  ];
+}
+
+function pipelineProcess() {
+  const mine = state.me.pipelineStage ?? 'build';
+  const open = pipelineOpen ?? mine;
+  const myIndex = PIPELINE.findIndex((x) => x.key === mine);
+  const people = [...state.users.values()];
+  const step = PIPELINE.find((x) => x.key === open);
+  const onStep = people.filter((u) => (u.pipelineStage ?? 'build') === open);
+  return h('div', { class: 'pipeline' },
+    h('p', { class: 'muted intro' }, 'The aim isn’t a bigger number. It’s to move, step by step, from work that takes our hours to income that doesn’t, so more of our time goes to God, our families, and making disciples. Mark the step you’re on so we can help each other along.'),
+    h('ol', { class: 'pipe-steps' }, PIPELINE.map((x, i) => {
+      const here = people.filter((u) => (u.pipelineStage ?? 'build') === x.key);
+      return h('li', {},
+        h('button', {
+          class: `pipe-step ${x.key === open ? 'open' : ''} ${x.key === mine ? 'mine' : ''} ${i < myIndex ? 'past' : ''}`,
+          'aria-pressed': String(x.key === open),
+          onclick: () => {
+            pipelineOpen = x.key;
+            renderShell();
+            // On phones the steps stack, so bring the step's details into view.
+            if (innerWidth <= 900) document.querySelector('.pipe-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          },
+        },
+          h('span', { class: 'pipe-icon', 'aria-hidden': 'true' }, i < myIndex ? '✓' : x.icon),
+          h('span', { class: 'pipe-num' }, `Step ${i + 1}`),
+          h('strong', {}, x.title),
+          h('span', { class: 'pipe-who' },
+            here.length ? h('span', { class: 'avatars' }, here.slice(0, 4).map((u) => avatar(u.id, 'sm'))) : null,
+            here.length ? `${here.length}` : h('span', { class: 'muted' }, 'No one yet')),
+          x.key === mine && h('span', { class: 'pipe-you' }, 'You’re here')));
+    })),
+    h('section', { class: 'card pipe-detail' },
+      h('div', { class: 'pipe-detail-head' },
+        h('div', {}, h('div', { class: 'plan-num' }, `Step ${PIPELINE.indexOf(step) + 1} of ${PIPELINE.length}`), h('h2', { class: 'serif' }, step.title)),
+        step.key === mine ? h('span', { class: 'chip launched' }, 'Your step')
+          : h('button', { class: 'btn small', onclick: () => setPipelineStage(step.key) }, 'I’m on this step')),
+      h('p', {}, step.text),
+      step.ready.length > 0 && h('div', {}, h('h4', {}, 'Ready for the next step when…'),
+        h('ul', { class: 'pipe-ready' }, step.ready.map((t) => h('li', {}, t)))),
+      step.links.length > 0 && h('div', { class: 'pipe-links' }, step.links.map(([label, href]) => h('a', { class: 'btn small', href }, `${label} →`))),
+      h('div', {}, h('h4', {}, `On this step (${onStep.length})`),
+        onStep.length ? h('div', { class: 'pipe-people' }, onStep.map((u) => h('button', { class: 'pipe-person', onclick: () => openMemberProfile(u.id) }, avatar(u.id, 'sm'), u.name)))
+          : h('p', { class: 'muted small', style: 'margin:0' }, 'No one is on this step yet.'))));
+}
+
+function dealsBoard() {
+  const deals = state.deals || [];
+  if (state.route.id) afterRenderHooks.push(() => openDeal(state.route.id));
+  return h('div', { class: 'deals' },
+    h('p', { class: 'muted intro' }, 'Properties members are looking into. Add one you’re considering and the numbers are worked out for you; others can weigh in or say they’d like to partner.'),
+    deals.length ? h('div', { class: 'grid deal-grid' }, deals.map(dealCard))
+      : h('div', { class: 'card empty' }, 'No deals yet. Found a property worth a look? Tap “+ Add a deal” and run the numbers together.'),
+    h('p', { class: 'small muted deal-disclaimer' }, 'These are estimates to help us think, not financial advice. Check the numbers with a lender, agent, or CPA before you buy.'));
+}
+
+function dealCard(d) {
+  const m = dealMath(d);
+  return h('article', { class: 'card deal-card', onclick: () => go(`#/pipeline/deals/${d.id}`) },
+    h('div', { class: 'deal-head' },
+      h('h3', {}, d.title), h('span', { class: `chip deal-${d.status}` }, DEAL_STATUS_LABELS[d.status])),
+    h('div', { class: 'small muted' }, [PROPERTY_LABELS[d.propertyType], d.location].filter(Boolean).join(' · ')),
+    h('div', { class: 'deal-nums' },
+      h('div', {}, h('b', {}, money(d.price)), h('span', {}, 'price')),
+      h('div', { class: m.cashFlow >= 0 ? 'pos' : 'neg' }, h('b', {}, money(m.cashFlow)), h('span', {}, 'cash flow / mo')),
+      h('div', {}, h('b', {}, pct(m.capRate)), h('span', {}, 'cap rate')),
+      h('div', {}, h('b', {}, pct(m.cashOnCash)), h('span', {}, 'cash-on-cash'))),
+    h('div', { class: 'deal-foot small muted' }, avatar(d.userId, 'sm'), userName(d.userId),
+      d.partners.length ? ` · ${d.partners.length} interested` : '', d.commentCount ? ` · ${d.commentCount} comments` : ''));
+}
+
+function dealNumbers(d) {
+  const m = dealMath(d);
+  const row = (label, value, cls = '') => h('div', { class: `deal-row ${cls}` }, h('span', {}, label), h('b', {}, value));
+  return h('div', { class: 'deal-calc' },
+    row('Price', money(Number(d.price))),
+    row(`Down payment (${Number(d.downPct) || 0}%)`, money(m.down)),
+    row(`Loan payment (${Number(d.rate) || 0}%, ${Number(d.years) || 30} yrs)`, `${money(m.payment)} / mo`),
+    row('Rent', `${money(Number(d.rent))} / mo`),
+    row('Expenses', `${money(Number(d.expenses))} / mo`),
+    row('Cash flow', `${money(m.cashFlow)} / mo`, m.cashFlow >= 0 ? 'pos total' : 'neg total'),
+    row(`Cash to buy (with ${Number(d.closingPct) || 0}% closing)`, money(m.cashIn)),
+    row('Cap rate', pct(m.capRate)),
+    row('Cash-on-cash return', pct(m.cashOnCash)));
+}
+
+function openDealEditor(deal) {
+  const v = deal ?? { downPct: 25, rate: 7, years: 30, closingPct: 3, status: 'looking', propertyType: 'single-family' };
+  const preview = h('div', {});
+  const numberField = (label, name, attrs = {}, hint) => field(label, h('input', { type: 'number', name, value: v[name], min: 0, step: 'any', inputmode: 'decimal', ...attrs }), hint);
+  const formEl = form([
+    field('Title', h('input', { type: 'text', name: 'title', required: true, maxlength: 120, value: v.title, placeholder: 'e.g. Duplex near downtown Santa Ana' })),
+    h('div', { class: 'row' },
+      field('Location', h('input', { type: 'text', name: 'location', maxlength: 200, value: v.location, placeholder: 'City or neighborhood' })),
+      field('Type', h('select', { name: 'propertyType' }, Object.entries(PROPERTY_LABELS).map(([value, label]) => h('option', { value, selected: v.propertyType === value }, label))))),
+    h('div', { class: 'row' },
+      numberField('Price ($)', 'price', { required: true, step: 1000 }),
+      numberField('Rent ($ / month)', 'rent', { step: 50 })),
+    numberField('Expenses ($ / month)', 'expenses', { step: 25 }, 'Taxes, insurance, HOA, repairs, vacancy, and management.'),
+    h('div', { class: 'row' },
+      numberField('Down payment (%)', 'downPct', { max: 100 }),
+      numberField('Interest rate (%)', 'rate', { max: 30, step: 0.125 })),
+    h('div', { class: 'row' },
+      numberField('Loan (years)', 'years', { min: 1, max: 40, step: 1 }),
+      numberField('Closing costs (%)', 'closingPct', { max: 20, step: 0.5 })),
+    h('h4', { class: 'deal-preview-title' }, 'The numbers'),
+    preview,
+    h('div', { class: 'row' },
+      field('Status', h('select', { name: 'status' }, Object.entries(DEAL_STATUS_LABELS).map(([value, label]) => h('option', { value, selected: v.status === value }, label)))),
+      field('Listing link', h('input', { type: 'url', name: 'link', maxlength: 500, value: v.link, placeholder: 'https://…' }))),
+    field('Notes', h('textarea', { name: 'notes', rows: 3, maxlength: 4000, value: v.notes, placeholder: 'Why it’s interesting, questions, what you’d need from partners…' })),
+  ], {
+    submitLabel: deal ? 'Save' : 'Add deal',
+    onSubmit: async (data) => {
+      const body = { ...data };
+      for (const k of ['price', 'rent', 'expenses', 'downPct', 'rate', 'years', 'closingPct']) body[k] = Number(data[k] || 0);
+      for (const k of ['price', 'rent', 'expenses', 'years']) body[k] = Math.round(body[k]);
+      const res = await api(deal ? `/api/deals/${deal.id}` : '/api/deals', { method: deal ? 'PATCH' : 'POST', body });
+      upsertDeal(res.deal);
+      close();
+      go(`#/pipeline/deals/${res.deal.id}`);
+      renderShell();
+    },
+  });
+  const update = () => preview.replaceChildren(dealNumbers(Object.fromEntries(new FormData(formEl))));
+  formEl.addEventListener('input', update);
+  update();
+  const close = openModal(deal ? 'Edit deal' : 'Add a deal', formEl, { wide: true });
+}
+
+async function openDeal(id) {
+  let deal;
+  try {
+    ({ deal } = await api(`/api/deals/${id}`));
+  } catch (err) {
+    toast(err.message, 'error');
+    return go('#/pipeline/deals');
+  }
+  const isOwner = deal.userId === state.me.id;
+  const interested = deal.partners.includes(state.me.id);
+  const refresh = (d) => { upsertDeal(d); close(); openDeal(d.id); };
+  const close = openModal(deal.title, h('div', {},
+    h('div', { style: 'display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap' },
+      h('span', { class: `chip deal-${deal.status}` }, DEAL_STATUS_LABELS[deal.status]),
+      h('span', { class: 'muted small' }, [PROPERTY_LABELS[deal.propertyType], deal.location].filter(Boolean).join(' · ')),
+      h('span', { class: 'spacer' }),
+      avatar(deal.userId, 'sm'), h('span', { class: 'small' }, userName(deal.userId))),
+    h('div', { class: 'detail-block' }, h('h4', {}, 'The numbers'), dealNumbers(deal),
+      h('p', { class: 'small muted', style: 'margin:8px 0 0' }, 'Estimates only, not financial advice.')),
+    deal.link && h('div', { class: 'detail-block' }, h('a', { href: deal.link, target: '_blank', rel: 'noopener noreferrer' }, 'View the listing →')),
+    deal.notes && h('div', { class: 'detail-block' }, h('h4', {}, 'Notes'), h('p', { html: formatText(deal.notes) })),
+    h('div', { class: 'detail-block' }, h('h4', {}, `Interested in partnering (${deal.partners.length})`),
+      deal.partners.length ? h('div', { class: 'pipe-people' }, deal.partners.map((uid) => h('button', { class: 'pipe-person', onclick: () => { close(); startDm(uid); } }, avatar(uid, 'sm'), userName(uid))))
+        : h('p', { class: 'muted', style: 'margin:0' }, 'No one yet.'),
+      !isOwner && h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' },
+        h('button', { class: `btn small ${interested ? 'on' : 'primary'}`, onclick: async () => {
+          try { refresh((await api(`/api/deals/${id}/partner`, { method: 'POST', body: { interested: !interested } })).deal); } catch (err) { toast(err.message, 'error'); }
+        } }, interested ? '✓ You’re interested' : '🤝 I’d like to partner'),
+        h('button', { class: 'btn small', onclick: () => { close(); startDm(deal.userId); } }, `Message ${userName(deal.userId).split(' ')[0]}`))),
+    h('div', { class: 'detail-block' }, h('h4', {}, `Discussion (${deal.comments.length})`),
+      deal.comments.map((c) => h('div', { class: 'comment' }, avatar(c.userId, 'sm'),
+        h('div', {}, h('strong', {}, userName(c.userId)), h('span', { class: 'muted small' }, ` · ${shortDate(c.createdAt)}`),
+          h('p', { html: formatText(c.body) })))),
+      form([h('textarea', { name: 'body', rows: 2, required: true, maxlength: 2000, placeholder: 'Ask about the numbers, the area, or the plan…' })], {
+        submitLabel: 'Comment',
+        onSubmit: async (values) => refresh((await api(`/api/deals/${id}/comments`, { method: 'POST', body: values })).deal),
+      })),
+    (isOwner || state.me.role === 'admin') && h('div', { class: 'modal-foot', style: 'border-top:1px solid var(--border);padding-top:14px' },
+      h('button', { class: 'btn danger ghost', onclick: async () => {
+        if (!confirm('Delete this deal?')) return;
+        await api(`/api/deals/${id}`, { method: 'DELETE' });
+        upsertDeal({ id, deleted: true });
+        close();
+        renderShell();
+      } }, 'Delete'),
+      h('span', { class: 'spacer' }),
+      isOwner && h('button', { class: 'btn', onclick: () => { close(); openDealEditor(deal); } }, 'Edit deal'))),
+  {
+    wide: true,
+    onClose: () => {
+      if (location.hash === `#/pipeline/deals/${id}`) history.replaceState(null, '', '#/pipeline/deals');
+      state.route = parseRoute();
+    },
+  });
+}
+
 // ---------- suggestions ----------
 
 let suggestionSort = 'top';
@@ -2690,6 +2975,7 @@ function openMemberProfile(userId) {
     h('div', { style: 'display:flex;gap:14px;align-items:center;margin-bottom:16px' }, avatar(u.id, 'lg'),
       h('div', {}, u.headline && h('div', {}, u.headline),
         h('div', { class: 'muted small' }, state.online.has(u.id) ? '● Online now' : 'Offline', ` · joined ${shortDate(u.createdAt)}`, u.role === 'admin' ? ' · Admin' : ''),
+        h('div', { class: 'small', style: 'margin-top:2px' }, 'Pipeline: ', (PIPELINE.find((x) => x.key === (u.pipelineStage ?? 'build')) ?? PIPELINE[0]).title),
         h('div', { class: 'small', style: 'margin-top:2px' }, u.stage === 'guest' ? 'Experiencing the group'
           : u.committedOn ? `Committed for the year since ${shortDate(u.committedOn + 'T12:00:00')}` : 'Committed member'))),
     u.bio && h('div', { class: 'detail-block' }, h('h4', {}, 'About'), h('p', {}, u.bio)),
@@ -2886,6 +3172,11 @@ function connectSocket() {
     else refreshSidebar();
   });
 
+  socket.on('deal:changed', (d) => {
+    upsertDeal(d);
+    if (!document.querySelector('.modal-backdrop') && state.route.name === 'pipeline') renderShell();
+  });
+
   socket.on('suggestion:changed', (x) => {
     upsertSuggestion(x);
     const modalOpen = document.querySelector('.modal-backdrop');
@@ -2929,10 +3220,11 @@ async function logout(silent = false) {
 
 async function start() {
   applyBootstrap(await api('/api/bootstrap'));
-  const [projects, suggestions, playbooks, five] = await Promise.all([
-    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), api('/api/five'), loadCalls(),
+  const [projects, suggestions, playbooks, five, deals] = await Promise.all([
+    api('/api/projects'), api('/api/suggestions'), api('/api/playbooks'), api('/api/five'), api('/api/deals'), loadCalls(),
   ]);
   state.five = five;
+  state.deals = deals.deals;
   state.projects = projects.projects;
   state.suggestions = suggestions.suggestions;
   state.playbooks = playbooks.playbooks;

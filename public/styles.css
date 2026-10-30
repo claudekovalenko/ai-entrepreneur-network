@@ -517,6 +517,77 @@ textarea { resize: vertical; min-height: 80px; }
 .check-row { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; cursor: pointer; }
 .check-row input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
 
+/* ---------- pipeline ---------- */
+.tab-count { margin-left: 6px; font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); }
+.pipeline { display: grid; gap: 16px; }
+.pipeline .intro { margin: 0; }
+.pipe-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; counter-reset: pipe; }
+.pipe-steps li { position: relative; display: flex; }
+.pipe-steps li + li::before {
+  content: ''; position: absolute; left: -10px; top: 38px; width: 10px; height: 2px; background: var(--border);
+}
+.pipe-step {
+  position: relative; flex: 1; display: grid; justify-items: start; align-content: start; gap: 4px; text-align: left; cursor: pointer;
+  padding: 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow);
+}
+@media (hover: hover) { .pipe-step:hover { border-color: var(--accent); } }
+.pipe-step.open { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow); }
+.pipe-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--surface-2); color: var(--accent-strong); font-size: 19px; margin-bottom: 4px; }
+.pipe-step.mine .pipe-icon, .pipe-step.past .pipe-icon { background: var(--accent); color: #fff; }
+.pipe-num { font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.pipe-step strong { font-size: 15px; line-height: 1.3; }
+.pipe-who { display: flex; align-items: center; gap: 6px; font-size: 12.5px; margin-top: 4px; min-height: 26px; }
+.pipe-you { position: absolute; top: 10px; right: 10px; font-size: 11px; font-weight: 700; color: var(--accent-strong); background: var(--accent-soft); padding: 2px 8px; border-radius: 999px; }
+.pipe-detail { display: grid; gap: 12px; }
+.pipe-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.pipe-detail h2 { font-size: 22px; }
+.pipe-detail p { margin: 0; max-width: 70ch; }
+.pipe-detail h4 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.pipe-ready { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.pipe-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.pipe-people { display: flex; gap: 8px; flex-wrap: wrap; }
+.pipe-person { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 4px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: 13.5px; }
+.pipe-person:hover { border-color: var(--accent); }
+@media (max-width: 900px) {
+  .pipe-steps { grid-template-columns: 1fr; gap: 8px; }
+  .pipe-steps li + li::before { left: 33px; top: -8px; width: 2px; height: 8px; }
+  .pipe-step { grid-template-columns: auto 1fr auto; align-items: center; column-gap: 12px; padding: 10px 12px; }
+  .pipe-icon { grid-row: span 2; margin: 0; }
+  .pipe-num { grid-column: 2; }
+  .pipe-step strong { grid-column: 2; }
+  .pipe-who { grid-column: 3; grid-row: 1 / span 2; margin: 0; }
+  .pipe-you { position: static; grid-column: 2; justify-self: start; margin-top: 2px; }
+}
+
+/* ---------- real estate deals ---------- */
+.deals { display: grid; gap: 14px; }
+.deals .intro { margin: 0; }
+.deal-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.deal-card { display: grid; gap: 8px; cursor: pointer; }
+@media (hover: hover) { .deal-card:hover { border-color: var(--accent); } }
+.deal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.deal-head h3 { font-size: 16px; overflow-wrap: anywhere; }
+.deal-nums { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.deal-nums > div { display: grid; padding: 8px 10px; border-radius: 10px; background: var(--surface-2); }
+.deal-nums b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.deal-nums span { font-size: 12px; color: var(--muted); }
+.deal-nums .pos b, .deal-row.pos b { color: var(--ok); }
+.deal-nums .neg b, .deal-row.neg b { color: var(--danger); }
+.deal-foot { display: flex; align-items: center; gap: 6px; }
+.deal-disclaimer { margin: 0; }
+.chip.deal-looking { background: #e3ecfb; color: #2c5aa0; border-color: transparent; }
+.chip.deal-analyzing { background: var(--accent-soft); color: var(--accent-strong); border-color: transparent; }
+.chip.deal-offer { background: #efe3f6; color: #8a3f8f; border-color: transparent; }
+.chip.deal-owned { background: #ddf3e6; color: var(--ok); border-color: transparent; }
+.chip.deal-passed { background: var(--surface-2); color: var(--muted); border-color: transparent; }
+.deal-calc { display: grid; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.deal-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 14px; }
+.deal-row + .deal-row { border-top: 1px solid var(--border); }
+.deal-row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.deal-row.total { background: var(--surface-2); }
+.deal-preview-title { margin: 6px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.deal-preview-title + div { margin-bottom: 14px; }
+
 /* ---------- calls: rhythm ---------- */
 .rhythm-card { display: grid; gap: 6px; }
 .rhythm-card h3 { font-size: 16px; }
@@ -576,6 +647,9 @@ textarea { resize: vertical; min-height: 80px; }
 @media (prefers-color-scheme: dark) {
   .chip.s-planned { background: #1d2c47; color: #8db4f2; }
   .chip.s-done { background: #173326; color: #6fd29b; }
+  .chip.deal-looking { background: #1d2c47; color: #8db4f2; }
+  .chip.deal-offer { background: #34203a; color: #d39bd6; }
+  .chip.deal-owned { background: #173326; color: #6fd29b; }
 }
 
 /* ---------- vision ---------- */

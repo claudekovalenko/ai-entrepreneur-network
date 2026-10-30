@@ -215,6 +215,40 @@ const STATEMENTS = [
     created_at TEXT NOT NULL DEFAULT ${NOW}
   )`,
   'CREATE INDEX IF NOT EXISTS five_meetings_person ON five_meetings(person_id, met_on)',
+  // Real estate deals members are looking into together.
+  `CREATE TABLE IF NOT EXISTS deals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    location TEXT NOT NULL DEFAULT '',
+    property_type TEXT NOT NULL DEFAULT 'single-family',
+    status TEXT NOT NULL DEFAULT 'looking',
+    price INTEGER NOT NULL DEFAULT 0,
+    down_pct REAL NOT NULL DEFAULT 25,
+    rate REAL NOT NULL DEFAULT 7,
+    years INTEGER NOT NULL DEFAULT 30,
+    closing_pct REAL NOT NULL DEFAULT 3,
+    rent INTEGER NOT NULL DEFAULT 0,
+    expenses INTEGER NOT NULL DEFAULT 0,
+    link TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    updated_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
+  // Members who would like to partner on a deal.
+  `CREATE TABLE IF NOT EXISTS deal_partners (
+    deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT ${NOW},
+    PRIMARY KEY (deal_id, user_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS deal_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT ${NOW}
+  )`,
   // Starter channels, only for a brand-new network.
   `INSERT INTO channels (name, description)
     SELECT column1, column2 FROM (VALUES
@@ -240,6 +274,8 @@ const COLUMNS = [
   // 'guest' while experiencing the group, 'member' once committed for the year.
   "ALTER TABLE users ADD COLUMN stage TEXT NOT NULL DEFAULT 'member'",
   'ALTER TABLE users ADD COLUMN committed_on TEXT',
+  // Where each member is in the pipeline, from building with AI to investing in real estate.
+  "ALTER TABLE users ADD COLUMN pipeline_stage TEXT NOT NULL DEFAULT 'build'",
 ];
 
 async function addColumns(db) {

@@ -589,3 +589,33 @@ test('quarterly gatherings repeat every three months on the same day', () => {
   const occ = upcomingOccurrences(call, Date.parse('2026-03-01T00:00:00Z'), 3);
   assert.deepEqual(occ.map((o) => o.occurrence), ['2026-04-30', '2026-07-31', '2026-10-31']);
 });
+
+test('pipeline: members mark their step; real estate deals with partners and comments', async () => {
+  const me = await bob('/api/me', { method: 'PATCH', body: { pipelineStage: 'set-aside' } });
+  assert.equal(me.data.user.pipelineStage, 'set-aside');
+  assert.equal((await bob('/api/me', { method: 'PATCH', body: { pipelineStage: 'rich' } })).status, 400);
+  assert.equal((await carol('/api/bootstrap')).data.users.find((u) => u.id === me.data.user.id).pipelineStage, 'set-aside');
+
+  const created = await bob('/api/deals', { method: 'POST', body: {
+    title: 'Duplex in Santa Ana', location: 'Santa Ana, CA', propertyType: 'multi-family',
+    price: 850000, rent: 5200, expenses: 1100, downPct: 25, rate: 6.75, years: 30, closingPct: 3,
+  } });
+  assert.equal(created.status, 200);
+  const id = created.data.deal.id;
+  assert.equal(created.data.deal.status, 'looking');
+  assert.equal((await bob('/api/deals', { method: 'POST', body: { title: 'Bad', price: -5 } })).status, 400);
+  assert.equal((await bob('/api/deals', { method: 'POST', body: { title: 'Bad', link: 'javascript:alert(1)' } })).status, 400);
+
+  assert.equal((await carol(`/api/deals/${id}`, { method: 'PATCH', body: { title: 'Mine now' } })).status, 403);
+  assert.equal((await bob(`/api/deals/${id}/partner`, { method: 'POST', body: {} })).status, 400, 'not your own deal');
+  let deal = (await carol(`/api/deals/${id}/partner`, { method: 'POST', body: {} })).data.deal;
+  assert.equal(deal.partners.length, 1);
+  deal = (await carol(`/api/deals/${id}/comments`, { method: 'POST', body: { body: 'What are the taxes?' } })).data.deal;
+  assert.equal(deal.comments.length, 1);
+  deal = (await bob(`/api/deals/${id}`, { method: 'PATCH', body: { status: 'analyzing' } })).data.deal;
+  assert.equal(deal.status, 'analyzing');
+  assert.equal(deal.price, 850000, 'untouched fields keep their values');
+  assert.equal((await carol('/api/deals')).data.deals.find((d) => d.id === id).commentCount, 1);
+  assert.equal((await carol(`/api/deals/${id}`, { method: 'DELETE' })).status, 403);
+  assert.equal((await alice(`/api/deals/${id}`, { method: 'DELETE' })).status, 200, 'admins can remove deals');
+});
