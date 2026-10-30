@@ -203,7 +203,9 @@ function parseRoute() {
   if (parts[0] === 'members') return { name: 'members' };
   if (parts[0] === 'vision') return { name: 'vision' };
   if (parts[0] === 'discipling' || parts[0] === 'five') return { name: 'discipling' };
-  if (parts[0] === 'pipeline') return { name: 'pipeline', tab: parts[1] === 'deals' ? 'deals' : 'process', id: parts[2] && Number(parts[2]) };
+  if (parts[0] === 'real-estate') return { name: 'realestate', id: parts[1] && Number(parts[1]) };
+  if (parts[0] === 'pipeline' && parts[1] === 'deals') return { name: 'realestate', id: parts[2] && Number(parts[2]) };
+  if (parts[0] === 'pipeline') return { name: 'pipeline' };
   if (parts[0] === 'tour') return { name: 'tour', step: Math.max(0, (Number(parts[1]) || 1) - 1) };
   if (parts[0] === 'chat') return { name: 'chat' };
   return { name: 'home' };
@@ -365,6 +367,7 @@ function renderSidebar() {
       navItem({ href: '#/vision', icon: h('span', { class: 'icon' }, '✝'), label: 'Our vision', active: r.name === 'vision' }),
       navItem({ href: '#/discipling', icon: h('span', { class: 'icon' }, '♡'), label: 'Who I’m discipling', active: r.name === 'discipling' }),
       navItem({ href: '#/pipeline', icon: h('span', { class: 'icon' }, '↗'), label: 'Pipeline', active: r.name === 'pipeline' }),
+      navItem({ href: '#/real-estate', icon: h('span', { class: 'icon' }, '⌂'), label: 'Real estate', active: r.name === 'realestate', extra: state.deals?.length ? h('span', { class: 'small', style: 'opacity:.7' }, `${state.deals.length} deal${state.deals.length === 1 ? '' : 's'}`) : null }),
       navItem({ href: '#/projects', icon: h('span', { class: 'icon' }, '◆'), label: 'Projects', active: r.name === 'projects', unread: 0, extra: helpCount ? h('span', { class: 'small', style: 'opacity:.7' }, `${helpCount} need help`) : null }),
       navItem({ href: '#/working', icon: h('span', { class: 'icon' }, '▲'), label: 'What’s working', active: r.name === 'working' }),
       navItem({ href: '#/suggestions', icon: h('span', { class: 'icon' }, '✦'), label: 'Suggestions', active: r.name === 'suggestions', extra: openSuggestions ? h('span', { class: 'small', style: 'opacity:.7' }, `${openSuggestions} open`) : null }),
@@ -446,7 +449,7 @@ function renderTabBar() {
   return h('nav', { class: 'tabbar', 'aria-label': 'Main' },
     tab('#/home', tabIcon('home'), 'Home', r === 'home'),
     tab('#/chat', tabIcon('chat'), 'Chat', r === 'chat' || r === 'room', unread),
-    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions', 'pipeline'].includes(r)),
+    tab('#/working', tabIcon('build'), 'Build', ['working', 'projects', 'suggestions', 'pipeline', 'realestate'].includes(r)),
     tab('#/calls', tabIcon('calls'), 'Calls', r === 'calls'),
     h('button', { class: 'tabbar-item', type: 'button', onclick: () => document.querySelector('.shell').classList.add('nav-open') },
       h('span', { class: 'tabbar-icon', 'aria-hidden': 'true' }, tabIcon('more')), h('span', {}, 'More')));
@@ -822,6 +825,7 @@ function renderMain() {
   else if (r.name === 'vision') main.append(...renderVision());
   else if (r.name === 'discipling') main.append(...renderDiscipling());
   else if (r.name === 'pipeline') main.append(...renderPipeline());
+  else if (r.name === 'realestate') main.append(...renderRealEstate());
   else if (r.name === 'tour') main.append(...renderTour(r.step));
   else main.append(...renderHome());
   // The install dropdown sits under the page title everywhere except inside a conversation.
@@ -871,6 +875,12 @@ function renderHome() {
         : h('div', { class: 'card empty' }, state.me.role === 'admin'
           ? h('div', {}, 'No calls scheduled yet. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); openCallEditor(); } }, 'Schedule the weekly call'))
           : 'No calls scheduled yet — check back soon.'),
+
+      h('div', { class: 'section-head' }, h('h2', {}, 'Real estate we’re looking at'),
+        h('a', { href: '#/real-estate', class: 'small' }, 'All deals →')),
+      (state.deals || []).filter((d) => d.status !== 'passed').length
+        ? h('div', { class: 'grid deal-grid' }, state.deals.filter((d) => d.status !== 'passed').slice(0, 3).map(dealCard))
+        : h('div', { class: 'card empty' }, 'No deals yet. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); openDealEditor(); } }, 'Add a property worth a look'), ' and run the numbers together.'),
 
       h('div', { class: 'section-head' }, h('h2', {}, 'Projects looking for help'),
         h('button', { class: 'btn small', onclick: () => openProjectEditor() }, '+ Share a project')),
@@ -1094,6 +1104,7 @@ const PLAN = {
     question: 'Did anyone take a next step toward God?',
     text: 'If so, how? Tell the story. We reflect and celebrate what God is doing, so we notice what is happening now rather than focusing only on future plans.',
   },
+  realEstate: 'Real estate is where the pipeline leads. Income from our AI work is set aside and put into property that provides for our families with little of our time, often bought together with other members. We look at deals as a group, run the numbers honestly, and never let a deal cost us our first priorities.',
   // What we're learning as we go.
   learnings: [
     ['Be the one who introduces people to AI',
@@ -1192,6 +1203,10 @@ function visionContent({ isPublic = false } = {}) {
             h('p', { class: 'plan-question serif' }, PLAN.measure.question),
             h('p', {}, PLAN.measure.text),
             planHere(['Tell a story in #next-steps', nextStepsHash()], isPublic)))),
+      h('section', { class: 'vision-block' },
+        h('h2', { class: 'serif' }, 'Real estate'),
+        h('p', {}, PLAN.realEstate),
+        planHere(['Look at the deals', '#/real-estate'], isPublic)),
       h('section', { class: 'vision-block' },
         h('h2', { class: 'serif' }, 'What we’re learning'),
         h('div', { class: 'plan-pair learnings' }, PLAN.learnings.map(([title, text], i) => h('article', { class: 'card plan-part' },
@@ -1297,6 +1312,14 @@ const TOUR = [
     action: ['See what’s working', '#/working'],
   },
   {
+    icon: '⌂', kicker: 'Provide', title: 'Real estate',
+    body: [
+      'Real estate is where the pipeline leads: income from AI work, set aside and put into property that provides for our families with little of our time.',
+      'Post a property you’re looking at and the numbers are worked out for you. Others can weigh in or say they’d like to partner, and #real-estate is where we talk it through.',
+    ],
+    action: ['Look at the deals', '#/real-estate'],
+  },
+  {
     icon: '☏', kicker: 'Gather', title: 'Community calls',
     body: [
       'We meet on Zoom every other week and gather in person every quarter, to explore big questions about God and life, workshop real business problems, pray, and follow up on what happened since last time.',
@@ -1350,7 +1373,7 @@ function tourChecklist() {
 }
 
 // Short labels for the slider tabs at the top of the walkthrough.
-const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Calls', 'Discipling', 'Suggestions', 'Where it leads', 'Next steps'];
+const TOUR_TABS = ['Welcome', 'The heart', 'Channels', 'Messages', 'Projects', 'What’s working', 'Real estate', 'Calls', 'Discipling', 'Suggestions', 'Where it leads', 'Next steps'];
 
 // A slowly turning 3D block with the step's icon on its faces.
 function tourCube(icon) {
@@ -2027,7 +2050,7 @@ const PIPELINE = [
     key: 'invest', title: 'Invest in real estate', icon: '⌂',
     text: 'Buy property that produces income, on your own or with partners from the group. Look at deals together before anyone buys.',
     ready: ['Your property pays for itself and then some', 'You know how it will be managed without taking your time'],
-    links: [['Look at deals', '#/pipeline/deals']],
+    links: [['Look at deals', '#/real-estate']],
   },
   {
     // Stored as 'freed' for members who already picked this step.
@@ -2088,16 +2111,54 @@ async function setPipelineStage(key) {
 }
 
 function renderPipeline() {
-  const r = state.route;
-  const tabs = h('div', { class: 'tabs', role: 'tablist' },
-    h('a', { class: `tab ${r.tab === 'process' ? 'on' : ''}`, href: '#/pipeline', role: 'tab', 'aria-selected': String(r.tab === 'process') }, 'The process'),
-    h('a', { class: `tab ${r.tab === 'deals' ? 'on' : ''}`, href: '#/pipeline/deals', role: 'tab', 'aria-selected': String(r.tab === 'deals') },
-      'Real estate deals', state.deals?.length ? h('span', { class: 'tab-count' }, state.deals.length) : null));
   return [
     topbar('Pipeline', 'From building with AI to investing in real estate',
-      r.tab === 'deals' ? [h('button', { class: 'btn primary', onclick: () => openDealEditor() }, '+ Add a deal')] : []),
-    h('div', { class: 'page' }, h('div', { class: 'page-inner' }, tabs, r.tab === 'deals' ? dealsBoard() : pipelineProcess())),
+      [h('a', { class: 'btn', href: '#/real-estate' }, 'Real estate →')]),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner' }, pipelineProcess())),
   ];
+}
+
+// Common ways members can start investing. General education, not advice.
+const RE_STRATEGIES = [
+  ['House hacking', 'Low', 'Buy a 2–4 unit property, live in one unit, and rent the others. Owner-occupied loans can allow a smaller down payment, and the rents help cover the mortgage.'],
+  ['Long-term rental', 'Low', 'A single-family home or condo rented on a yearly lease. Simple to understand, and a property manager can keep it light on your time.'],
+  ['Small multifamily', 'Low–medium', 'Two to four units under one roof and one loan. Several rents mean one vacancy doesn’t wipe out the cash flow.'],
+  ['Invest together', 'Low', 'Pool money with other members on one property, with a written agreement on who puts in what, who manages it, and how cash flow and profit are shared.'],
+  ['Out-of-area rentals', 'Low–medium', 'Southern California prices make cash flow hard. Many investors buy in more affordable markets and hire a trusted local property manager.'],
+  ['BRRRR', 'High', 'Buy below value, rehab, rent, refinance to pull your cash back out, and repeat. It can grow faster, but the rehab takes real time and carries more risk.'],
+];
+
+function renderRealEstate() {
+  const deals = state.deals || [];
+  if (state.route.id) afterRenderHooks.push(() => openDeal(state.route.id));
+  const watching = deals.filter((d) => d.status !== 'passed');
+  return [
+    topbar('Real estate', 'Properties we’re looking at together',
+      [h('button', { class: 'btn primary', onclick: () => openDealEditor() }, '+ Add a deal')]),
+    h('div', { class: 'page' }, h('div', { class: 'page-inner re-page' },
+      h('section', { class: 'card re-intro' },
+        h('div', {},
+          h('h2', { class: 'serif' }, 'Provision that needs little of our time'),
+          h('p', {}, PLAN.realEstate),
+          h('a', { class: 'plan-here', href: '#/pipeline' }, 'Where this fits in the pipeline →')),
+        h('div', { class: 're-stats' },
+          h('div', {}, h('b', {}, watching.length), h('span', {}, 'deals we’re looking at')),
+          h('div', {}, h('b', {}, deals.filter((d) => d.status === 'owned').length), h('span', {}, 'bought')),
+          h('div', {}, h('b', {}, [...state.users.values()].filter((u) => u.pipelineStage === 'invest').length), h('span', {}, 'members investing')))),
+      h('div', { class: 'section-head' }, h('h2', {}, 'Deals'),
+        nextChannelLink('real-estate', 'Talk in #real-estate →')),
+      dealsBoard(),
+      h('div', { class: 'section-head' }, h('h2', {}, 'Ways to invest')),
+      h('div', { class: 'grid re-strategies' }, RE_STRATEGIES.map(([title, time, text]) => h('article', { class: 'card' },
+        h('div', { class: 'deal-head' }, h('h3', {}, title), h('span', { class: 'chip' }, `Time: ${time}`)),
+        h('p', { class: 'muted small', style: 'margin:6px 0 0' }, text)))),
+      h('p', { class: 'small muted deal-disclaimer' }, 'This is general education to help us think, not financial, legal, or tax advice. Check the numbers with a lender, agent, or CPA before you buy.'))),
+  ];
+}
+
+function nextChannelLink(name, label) {
+  const c = (state.channels || []).find((x) => x.name === name);
+  return c ? h('a', { class: 'small', href: roomHash(c.room) }, label) : null;
 }
 
 function pipelineProcess() {
@@ -2146,17 +2207,15 @@ function pipelineProcess() {
 
 function dealsBoard() {
   const deals = state.deals || [];
-  if (state.route.id) afterRenderHooks.push(() => openDeal(state.route.id));
   return h('div', { class: 'deals' },
-    h('p', { class: 'muted intro' }, 'Properties members are looking into. Add one you’re considering and the numbers are worked out for you; others can weigh in or say they’d like to partner.'),
+    h('p', { class: 'muted intro' }, 'Add a property you’re considering and the numbers are worked out for you. Others can weigh in or say they’d like to partner.'),
     deals.length ? h('div', { class: 'grid deal-grid' }, deals.map(dealCard))
-      : h('div', { class: 'card empty' }, 'No deals yet. Found a property worth a look? Tap “+ Add a deal” and run the numbers together.'),
-    h('p', { class: 'small muted deal-disclaimer' }, 'These are estimates to help us think, not financial advice. Check the numbers with a lender, agent, or CPA before you buy.'));
+      : h('div', { class: 'card empty' }, 'No deals yet. Found a property worth a look? Tap “+ Add a deal” and run the numbers together.'));
 }
 
 function dealCard(d) {
   const m = dealMath(d);
-  return h('article', { class: 'card deal-card', onclick: () => go(`#/pipeline/deals/${d.id}`) },
+  return h('article', { class: 'card deal-card', onclick: () => go(`#/real-estate/${d.id}`) },
     h('div', { class: 'deal-head' },
       h('h3', {}, d.title), h('span', { class: `chip deal-${d.status}` }, DEAL_STATUS_LABELS[d.status])),
     h('div', { class: 'small muted' }, [PROPERTY_LABELS[d.propertyType], d.location].filter(Boolean).join(' · ')),
@@ -2218,7 +2277,7 @@ function openDealEditor(deal) {
       const res = await api(deal ? `/api/deals/${deal.id}` : '/api/deals', { method: deal ? 'PATCH' : 'POST', body });
       upsertDeal(res.deal);
       close();
-      go(`#/pipeline/deals/${res.deal.id}`);
+      go(`#/real-estate/${res.deal.id}`);
       renderShell();
     },
   });
@@ -2234,7 +2293,7 @@ async function openDeal(id) {
     ({ deal } = await api(`/api/deals/${id}`));
   } catch (err) {
     toast(err.message, 'error');
-    return go('#/pipeline/deals');
+    return go('#/real-estate');
   }
   const isOwner = deal.userId === state.me.id;
   const interested = deal.partners.includes(state.me.id);
@@ -2278,7 +2337,7 @@ async function openDeal(id) {
   {
     wide: true,
     onClose: () => {
-      if (location.hash === `#/pipeline/deals/${id}`) history.replaceState(null, '', '#/pipeline/deals');
+      if (location.hash === `#/real-estate/${id}`) history.replaceState(null, '', '#/real-estate');
       state.route = parseRoute();
     },
   });
@@ -3189,7 +3248,7 @@ function connectSocket() {
 
   socket.on('deal:changed', (d) => {
     upsertDeal(d);
-    if (!document.querySelector('.modal-backdrop') && state.route.name === 'pipeline') renderShell();
+    if (!document.querySelector('.modal-backdrop') && ['realestate', 'home'].includes(state.route.name)) renderShell();
   });
 
   socket.on('suggestion:changed', (x) => {

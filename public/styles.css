@@ -589,6 +589,21 @@ textarea { resize: vertical; min-height: 80px; }
 .deal-preview-title { margin: 6px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .deal-preview-title + div { margin-bottom: 14px; }
 
+/* ---------- real estate page ---------- */
+.re-page { display: grid; gap: 4px; }
+.re-intro { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; background: var(--sidebar); color: #fff; border: 0; }
+.re-intro h2 { font-size: 22px; }
+.re-intro p { margin: 6px 0 8px; color: var(--sidebar-text); max-width: 64ch; }
+.re-intro .plan-here { color: var(--gold); }
+.re-stats { display: grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); gap: 8px; }
+.re-stats > div { display: grid; gap: 2px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, .07); }
+.re-stats b { font-size: 22px; color: var(--gold); }
+.re-stats span { font-size: 12px; color: var(--sidebar-muted); line-height: 1.3; }
+.re-strategies { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.re-strategies h3 { font-size: 15px; }
+.re-page .deal-disclaimer { margin-top: 14px; }
+@media (max-width: 760px) { .re-intro { grid-template-columns: 1fr; } }
+
 /* ---------- calls: rhythm ---------- */
 .rhythm-card { display: grid; gap: 6px; }
 .rhythm-card h3 { font-size: 16px; }

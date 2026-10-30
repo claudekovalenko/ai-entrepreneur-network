@@ -556,6 +556,7 @@ test('new members start by experiencing the group; admins mark them committed', 
   const boot = await carol('/api/bootstrap');
   assert.equal(boot.data.users.find((u) => u.id === me.id).stage, 'guest');
   assert.ok(boot.data.channels.some((c) => c.name === 'next-steps'), 'the #next-steps channel exists');
+  assert.ok(boot.data.channels.some((c) => c.name === 'real-estate'), 'the #real-estate channel exists');
 });
 
 test('who I am discipling: a private list with time logged together', async () => {

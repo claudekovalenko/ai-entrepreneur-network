@@ -266,6 +266,11 @@ const STATEMENTS = [
     WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'seeded:next-steps')
       AND NOT EXISTS (SELECT 1 FROM channels WHERE name = 'next-steps')`,
   "INSERT OR IGNORE INTO settings (key, value) VALUES ('seeded:next-steps', '1')",
+  `INSERT INTO channels (name, description)
+    SELECT 'real-estate', 'Properties, markets, financing, and partnering on deals together'
+    WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'seeded:real-estate')
+      AND NOT EXISTS (SELECT 1 FROM channels WHERE name = 'real-estate')`,
+  "INSERT OR IGNORE INTO settings (key, value) VALUES ('seeded:real-estate', '1')",
 ];
 
 // Columns added after launch. SQLite has no ADD COLUMN IF NOT EXISTS, so each one is
